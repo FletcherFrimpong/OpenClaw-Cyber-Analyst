@@ -5,7 +5,6 @@ Security automation skillset for OpenClaw.
 This repo ships:
 
 - `cyber-security-engineer`: least-privilege enforcement helpers, port monitoring, and ISO 27001 + NIST benchmarking with a local dashboard.
-- `openclaw-coder`: a software engineering skill profile for coding tasks.
 
 ## What The Cyber Security Engineer Skill Does
 
@@ -159,4 +158,3 @@ openclaw config set gateway.bind loopback
 openclaw doctor --fix
 openclaw gateway restart
 ```
-

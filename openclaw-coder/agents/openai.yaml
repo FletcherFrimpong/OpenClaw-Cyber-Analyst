@@ -1,4 +1,0 @@
-interface:
-  display_name: "OpenClaw Coder"
-  short_description: "Code features, fixes, refactors, and tests"
-  default_prompt: "Use $openclaw-coder to implement this coding task end-to-end with validation."
