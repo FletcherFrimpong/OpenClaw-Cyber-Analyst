@@ -88,6 +88,39 @@ This refreshes:
 - `cyber-security-engineer/assessments/compliance-dashboard.html`
 - `cyber-security-engineer/assessments/port-monitor-latest.json`
 
+## Approved Ports Baseline
+
+Port monitoring compares listeners to an approved baseline. Generate one from current services:
+
+```bash
+python3 cyber-security-engineer/scripts/generate_approved_ports.py
+```
+
+This writes `~/.openclaw/security/approved_ports.json`. Review and prune it for approved services.
+A starter template is available at `cyber-security-engineer/references/approved_ports.template.json`.
+
+Port discovery uses `lsof` when available, with fallbacks to `ss` (Linux) or `netstat` (Windows).
+
+## Runtime Enforcement Hook
+
+Install a runtime hook that wraps `sudo` with approval enforcement for OpenClaw tasks:
+
+```bash
+./cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh
+```
+
+The bootstrap script enables this by default. To skip it:
+
+```bash
+ENFORCE_PRIVILEGED_EXEC=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
+```
+
+After installation, restart the OpenClaw gateway so it picks up the PATH override:
+
+```bash
+openclaw gateway restart
+```
+
 ## Auto-Invoke (All Platforms)
 
 Auto-detect helper:

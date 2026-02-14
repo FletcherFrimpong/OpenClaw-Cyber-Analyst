@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -30,12 +31,13 @@ def ask_for_approval(reason: str, command_argv: List[str]) -> bool:
 
 
 def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
-    exec_argv = ["sudo", "--"] + argv if use_sudo else argv
+    sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "sudo")
+    exec_argv = [sudo_bin, "--"] + argv if use_sudo else argv
     print("Executing argv:")
     print(json.dumps(exec_argv, indent=2))
     if use_sudo and sudo_kill_cache:
         # Best-effort: ensure sudo timestamp for this user is not reused implicitly.
-        subprocess.run(["sudo", "-k"], check=False, capture_output=True, text=True)
+        subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
     result = subprocess.run(exec_argv)
     return result.returncode
 
@@ -127,7 +129,8 @@ def main() -> int:
         if not args.keep_session:
             run_guard(args, "drop")
         if args.use_sudo and args.sudo_kill_cache:
-            subprocess.run(["sudo", "-k"], check=False, capture_output=True, text=True)
+            sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "sudo")
+            subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
 
 
 if __name__ == "__main__":

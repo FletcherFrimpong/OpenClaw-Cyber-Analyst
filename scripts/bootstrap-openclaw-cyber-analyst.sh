@@ -7,6 +7,7 @@ SKILL_NAME="cyber-security-engineer"
 CODEX_SKILLS_DIR="${HOME}/.codex/skills"
 OPENCLAW_SKILLS_DIR="${HOME}/.openclaw/workspace/skills"
 AUTO_INVOKE="${AUTO_INVOKE:-1}"
+ENFORCE_PRIVILEGED_EXEC="${ENFORCE_PRIVILEGED_EXEC:-1}"
 
 log() {
   printf '[openclaw-cyber-analyst] %s\n' "$*"
@@ -110,6 +111,10 @@ main() {
   require_cmd openclaw
   configure_openclaw
   install_skill
+  if [[ "${ENFORCE_PRIVILEGED_EXEC}" == "1" ]]; then
+    log "Installing OpenClaw runtime privileged-exec hook..."
+    bash "${REPO_ROOT}/cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh" || true
+  fi
   enable_auto_invoke
   verify_install
 }

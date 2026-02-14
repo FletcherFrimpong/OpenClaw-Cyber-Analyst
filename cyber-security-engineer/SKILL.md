@@ -13,7 +13,12 @@ Implement these controls in every security-sensitive task:
 4. Drop elevated state immediately after the privileged command completes.
 5. Expire elevated state after 30 idle minutes and require re-approval.
 6. Monitor listening network ports and flag insecure or unapproved exposure.
-7. Benchmark controls against ISO 27001 and NIST and report violations with mitigations.
+7. If no approved baseline exists, generate one with `python3 scripts/generate_approved_ports.py`, then review and prune.
+8. Benchmark controls against ISO 27001 and NIST and report violations with mitigations.
+
+## Non-Goals (Web Browsing)
+
+- Do not use web browsing / web search as part of this skill. Keep assessments and recommendations based on local host/OpenClaw state and the bundled references in this skill.
 
 ## Files To Use
 
@@ -22,7 +27,10 @@ Implement these controls in every security-sensitive task:
 - `references/compliance-controls-map.json`: ISO 27001 and NIST control mapping catalog.
 - `scripts/root_session_guard.py`: Stateful idle-timeout and elevation-session helper.
 - `scripts/guarded_privileged_exec.py`: Wrapper that enforces approval-first elevated execution and immediate privilege drop.
+- `scripts/install-openclaw-runtime-hook.sh`: Installs a runtime sudo guard wrapper for OpenClaw.
 - `scripts/port_monitor.py`: Listening-port inventory, insecure-port detection, and recommendations.
+- `scripts/generate_approved_ports.py`: Create an approved listening-port baseline from current services.
+- `references/approved_ports.template.json`: Starter baseline template.
 - `scripts/compliance_dashboard.py`: Assessment scaffold and dashboard renderer for controls map, violations, risk, and mitigations.
 - `scripts/live_assessment.py`: Populate assessment findings from current machine/OpenClaw runtime state.
 
@@ -40,15 +48,17 @@ Implement these controls in every security-sensitive task:
    - `python3 scripts/root_session_guard.py normal-used`
 6. Run network exposure monitoring:
    - `python3 scripts/port_monitor.py --json`
-7. Report insecure or unapproved ports and recommend secure alternatives.
-8. Initialize assessment scaffold:
+7. If no approved baseline exists, generate one:
+   - `python3 scripts/generate_approved_ports.py`
+8. Report insecure or unapproved ports and recommend secure alternatives.
+9. Initialize assessment scaffold:
    - `python3 scripts/compliance_dashboard.py init-assessment --system "OpenClaw"`
-9. Update assessment values based on observed controls and evidence.
-10. Render dashboard views:
+10. Update assessment values based on observed controls and evidence.
+11. Render dashboard views:
    - `python3 scripts/compliance_dashboard.py render`
-11. For auto-run mode, execute periodic cycle from repo root:
+12. For auto-run mode, execute periodic cycle from repo root:
    - `./scripts/auto-invoke-security-cycle.sh`
-12. Enable cross-platform scheduler auto-invoke from repo root:
+13. Enable cross-platform scheduler auto-invoke from repo root:
    - `./scripts/enable-auto-invoke.sh`
 
 ## Preferred Privileged Executor

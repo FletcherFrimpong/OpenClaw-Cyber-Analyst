@@ -2,6 +2,7 @@
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,22 @@ def run_lsof() -> str:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "Failed to run lsof")
+    return proc.stdout
+
+
+def run_ss() -> str:
+    cmd = ["ss", "-ltnp"]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or "Failed to run ss")
+    return proc.stdout
+
+
+def run_netstat_windows() -> str:
+    cmd = ["netstat", "-ano", "-p", "tcp"]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or "Failed to run netstat")
     return proc.stdout
 
 
@@ -95,6 +112,82 @@ def parse_lsof_output(text: str) -> List[Dict[str, object]]:
     return entries
 
 
+def parse_ss_output(text: str) -> List[Dict[str, object]]:
+    lines = [line for line in text.splitlines() if line.strip()]
+    entries: List[Dict[str, object]] = []
+    seen = set()
+    for line in lines[1:]:
+        if "LISTEN" not in line:
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local = parts[3]
+        host, port = parse_name(local)
+        if port is None:
+            continue
+        cmd_match = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
+        command = cmd_match.group(1) if cmd_match else "unknown"
+        pid = int(cmd_match.group(2)) if cmd_match else "unknown"
+        entry = {
+            "command": command,
+            "pid": pid,
+            "user": None,
+            "host": host,
+            "port": port,
+            "protocol": "tcp",
+        }
+        dedupe_key = (entry["command"], entry["pid"], entry["host"], entry["port"], entry["protocol"])
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        entries.append(entry)
+    return entries
+
+
+def parse_netstat_windows_output(text: str) -> List[Dict[str, object]]:
+    entries: List[Dict[str, object]] = []
+    seen = set()
+    for line in text.splitlines():
+        if not line.strip().startswith("TCP"):
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local = parts[1]
+        state = parts[3]
+        pid = parts[4]
+        if state.upper() != "LISTENING":
+            continue
+        host, port = parse_name(local)
+        if port is None:
+            continue
+        entry = {
+            "command": "unknown",
+            "pid": int(pid) if pid.isdigit() else pid,
+            "user": None,
+            "host": host,
+            "port": port,
+            "protocol": "tcp",
+        }
+        dedupe_key = (entry["command"], entry["pid"], entry["host"], entry["port"], entry["protocol"])
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        entries.append(entry)
+    return entries
+
+
+def collect_entries() -> Tuple[List[Dict[str, object]], str]:
+    if shutil.which("lsof"):
+        return parse_lsof_output(run_lsof()), "lsof"
+    if sys.platform.startswith("linux") and shutil.which("ss"):
+        return parse_ss_output(run_ss()), "ss"
+    if sys.platform.startswith("win") and shutil.which("netstat"):
+        return parse_netstat_windows_output(run_netstat_windows()), "netstat"
+    raise RuntimeError("No supported port listing tool found (lsof/ss/netstat)")
+
+
 def load_approved_ports(path: Path) -> List[Dict[str, object]]:
     if not path.exists():
         return []
@@ -130,7 +223,7 @@ def build_findings(entries: List[Dict[str, object]], approved: List[Dict[str, ob
     findings: List[Dict[str, object]] = []
     for entry in entries:
         port = int(entry["port"])
-        host = str(entry["host"])
+        host = str(entry.get("host") or "")
 
         if not is_approved(entry, approved):
             findings.append(
@@ -187,8 +280,7 @@ def main() -> int:
     args = parse_args()
     approved_path = Path(args.approved_file).expanduser()
     try:
-        lsof_text = run_lsof()
-        entries = parse_lsof_output(lsof_text)
+        entries, tool_used = collect_entries()
         approved = load_approved_ports(approved_path)
         findings = build_findings(entries, approved)
     except Exception as exc:
@@ -199,6 +291,7 @@ def main() -> int:
         "status": "ok",
         "approved_file": str(approved_path),
         "approved_rules_count": len(approved),
+        "tool": tool_used,
         "listening_services": entries,
         "findings": findings,
     }
