@@ -1,0 +1,50 @@
+[
+  {
+    "check_id": "privilege_approval_required",
+    "title": "Approval required before elevated access",
+    "iso27001": ["A.5.15", "A.5.18"],
+    "nist": ["PR.AA-01", "PR.AA-05"],
+    "default_risk": "high",
+    "expected_state": "Every privileged action requires explicit user approval."
+  },
+  {
+    "check_id": "least_privilege_enforced",
+    "title": "Least privilege execution mode",
+    "iso27001": ["A.5.15", "A.5.18"],
+    "nist": ["PR.AA-01", "PR.PS-01"],
+    "default_risk": "high",
+    "expected_state": "Default mode is non-root and elevated rights are scoped and short-lived."
+  },
+  {
+    "check_id": "elevation_timeout_30m",
+    "title": "Elevated session idle timeout",
+    "iso27001": ["A.8.2", "A.8.15"],
+    "nist": ["PR.AA-03", "DE.CM-01"],
+    "default_risk": "medium",
+    "expected_state": "Elevated session expires after 30 minutes of inactivity."
+  },
+  {
+    "check_id": "audit_logging_privileged_actions",
+    "title": "Privileged action audit logging",
+    "iso27001": ["A.8.15", "A.8.16"],
+    "nist": ["DE.AE-03", "DE.CM-01"],
+    "default_risk": "medium",
+    "expected_state": "All elevated approvals, commands, and privilege drops are logged."
+  },
+  {
+    "check_id": "open_ports_approved",
+    "title": "Open ports baseline approval",
+    "iso27001": ["A.8.20", "A.8.21"],
+    "nist": ["PR.PS-02", "DE.CM-01"],
+    "default_risk": "medium",
+    "expected_state": "All listening ports are approved and business-justified."
+  },
+  {
+    "check_id": "insecure_ports_remediated",
+    "title": "Insecure ports remediated",
+    "iso27001": ["A.8.20", "A.8.21"],
+    "nist": ["PR.PS-02", "PR.DS-02"],
+    "default_risk": "high",
+    "expected_state": "Insecure legacy ports are closed or migrated to secure alternatives."
+  }
+]

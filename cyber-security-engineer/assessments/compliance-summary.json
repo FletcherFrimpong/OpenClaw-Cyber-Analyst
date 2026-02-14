@@ -1,0 +1,143 @@
+{
+  "generated_at_utc": "2026-02-14T13:10:27.953431Z",
+  "system": "OpenClaw",
+  "summary": {
+    "status_counts": {
+      "not_assessed": 6
+    },
+    "risk_counts": {
+      "high": 3,
+      "medium": 3
+    },
+    "violations": [],
+    "mitigations": []
+  },
+  "controls": [
+    {
+      "check_id": "privilege_approval_required",
+      "title": "Approval required before elevated access",
+      "iso27001": [
+        "A.5.15",
+        "A.5.18"
+      ],
+      "nist": [
+        "PR.AA-01",
+        "PR.AA-05"
+      ],
+      "expected_state": "Every privileged action requires explicit user approval.",
+      "status": "not_assessed",
+      "risk": "high",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "least_privilege_enforced",
+      "title": "Least privilege execution mode",
+      "iso27001": [
+        "A.5.15",
+        "A.5.18"
+      ],
+      "nist": [
+        "PR.AA-01",
+        "PR.PS-01"
+      ],
+      "expected_state": "Default mode is non-root and elevated rights are scoped and short-lived.",
+      "status": "not_assessed",
+      "risk": "high",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "elevation_timeout_30m",
+      "title": "Elevated session idle timeout",
+      "iso27001": [
+        "A.8.2",
+        "A.8.15"
+      ],
+      "nist": [
+        "PR.AA-03",
+        "DE.CM-01"
+      ],
+      "expected_state": "Elevated session expires after 30 minutes of inactivity.",
+      "status": "not_assessed",
+      "risk": "medium",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "audit_logging_privileged_actions",
+      "title": "Privileged action audit logging",
+      "iso27001": [
+        "A.8.15",
+        "A.8.16"
+      ],
+      "nist": [
+        "DE.AE-03",
+        "DE.CM-01"
+      ],
+      "expected_state": "All elevated approvals, commands, and privilege drops are logged.",
+      "status": "not_assessed",
+      "risk": "medium",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "open_ports_approved",
+      "title": "Open ports baseline approval",
+      "iso27001": [
+        "A.8.20",
+        "A.8.21"
+      ],
+      "nist": [
+        "PR.PS-02",
+        "DE.CM-01"
+      ],
+      "expected_state": "All listening ports are approved and business-justified.",
+      "status": "not_assessed",
+      "risk": "medium",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "insecure_ports_remediated",
+      "title": "Insecure ports remediated",
+      "iso27001": [
+        "A.8.20",
+        "A.8.21"
+      ],
+      "nist": [
+        "PR.PS-02",
+        "PR.DS-02"
+      ],
+      "expected_state": "Insecure legacy ports are closed or migrated to secure alternatives.",
+      "status": "not_assessed",
+      "risk": "high",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    }
+  ]
+}

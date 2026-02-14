@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "system": "OpenClaw",
+    "generated_at_utc": "2026-02-14T13:10:27.917493Z",
+    "frameworks": [
+      "ISO/IEC 27001:2022",
+      "NIST CSF"
+    ]
+  },
+  "checks": [
+    {
+      "check_id": "privilege_approval_required",
+      "status": "not_assessed",
+      "risk": "high",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "least_privilege_enforced",
+      "status": "not_assessed",
+      "risk": "high",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "elevation_timeout_30m",
+      "status": "not_assessed",
+      "risk": "medium",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "audit_logging_privileged_actions",
+      "status": "not_assessed",
+      "risk": "medium",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "open_ports_approved",
+      "status": "not_assessed",
+      "risk": "medium",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    },
+    {
+      "check_id": "insecure_ports_remediated",
+      "status": "not_assessed",
+      "risk": "high",
+      "observed_state": "",
+      "evidence": "",
+      "gap": "",
+      "mitigation": "",
+      "owner": "",
+      "due_date": ""
+    }
+  ]
+}
