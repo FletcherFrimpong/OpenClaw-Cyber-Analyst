@@ -12,7 +12,13 @@ if ! command -v systemctl >/dev/null 2>&1; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUNNER="${REPO_ROOT}/scripts/auto-invoke-security-cycle.sh"
+RUNNER_INSTALLED="${HOME}/.openclaw/workspace/skills/cyber-security-engineer/scripts/auto_invoke_cycle.sh"
+RUNNER_REPO="${REPO_ROOT}/scripts/auto-invoke-security-cycle.sh"
+if [[ -x "${RUNNER_INSTALLED}" ]]; then
+  RUNNER="${RUNNER_INSTALLED}"
+else
+  RUNNER="${RUNNER_REPO}"
+fi
 UNIT_DIR="${HOME}/.config/systemd/user"
 SERVICE="${UNIT_DIR}/ai.openclaw.cyber-security-engineer.service"
 TIMER="${UNIT_DIR}/ai.openclaw.cyber-security-engineer.timer"

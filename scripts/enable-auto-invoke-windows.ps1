@@ -4,7 +4,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Runner = Join-Path $RepoRoot "scripts\auto-invoke-security-cycle.sh"
+$RunnerInstalled = Join-Path $HOME ".openclaw\workspace\skills\cyber-security-engineer\scripts\auto_invoke_cycle.sh"
+$RunnerRepo = Join-Path $RepoRoot "scripts\auto-invoke-security-cycle.sh"
+$Runner = $RunnerRepo
+if (Test-Path $RunnerInstalled) {
+  $Runner = $RunnerInstalled
+}
 
 if (-not (Test-Path $Runner)) {
   throw "Runner script not found: $Runner"

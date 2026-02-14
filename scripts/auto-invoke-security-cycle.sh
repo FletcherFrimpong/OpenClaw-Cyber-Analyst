@@ -1,30 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILL_DIR="${REPO_ROOT}/cyber-security-engineer"
-ASSESS_DIR="${SKILL_DIR}/assessments"
-ASSESS_FILE="${ASSESS_DIR}/openclaw-assessment.json"
-HTML_OUT="${ASSESS_DIR}/compliance-dashboard.html"
-SUMMARY_OUT="${ASSESS_DIR}/compliance-summary.json"
-LOG_DIR="${HOME}/.openclaw/logs"
-RUN_LOG="${LOG_DIR}/cyber-security-engineer-auto.log"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+INSTALLED_RUNNER="${HOME}/.openclaw/workspace/skills/cyber-security-engineer/scripts/auto_invoke_cycle.sh"
+REPO_RUNNER="${REPO_ROOT}/cyber-security-engineer/scripts/auto_invoke_cycle.sh"
 
-mkdir -p "${LOG_DIR}"
+if [[ -x "${INSTALLED_RUNNER}" ]]; then
+  exec /bin/bash "${INSTALLED_RUNNER}"
+fi
 
-{
-  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting auto security cycle"
+if [[ -x "${REPO_RUNNER}" ]]; then
+  exec /bin/bash "${REPO_RUNNER}"
+fi
 
-  if [[ ! -f "${ASSESS_FILE}" ]]; then
-    python3 "${SKILL_DIR}/scripts/compliance_dashboard.py" init-assessment --system "OpenClaw" --output "${ASSESS_FILE}"
-  fi
-
-  python3 "${SKILL_DIR}/scripts/live_assessment.py" --assessment-file "${ASSESS_FILE}"
-  python3 "${SKILL_DIR}/scripts/compliance_dashboard.py" render \
-    --assessment-file "${ASSESS_FILE}" \
-    --output-html "${HTML_OUT}" \
-    --output-summary "${SUMMARY_OUT}"
-  python3 "${SKILL_DIR}/scripts/port_monitor.py" --json > "${ASSESS_DIR}/port-monitor-latest.json"
-
-  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Completed auto security cycle"
-} >> "${RUN_LOG}" 2>&1
+echo "No auto cycle runner found. Expected one of:"
+echo "  ${INSTALLED_RUNNER}"
+echo "  ${REPO_RUNNER}"
+exit 1

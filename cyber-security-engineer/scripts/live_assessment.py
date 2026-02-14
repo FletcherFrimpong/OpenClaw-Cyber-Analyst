@@ -2,6 +2,7 @@
 import argparse
 import json
 import subprocess
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -12,6 +13,24 @@ def run_cmd(cmd: List[str]) -> str:
     if proc.returncode != 0:
         return proc.stdout + "\n" + proc.stderr
     return proc.stdout
+
+
+def resolve_openclaw_bin() -> str:
+    env_override = Path.home() / ".openclaw" / "openclaw-bin-path.txt"
+    if env_override.exists():
+        candidate = env_override.read_text(encoding="utf-8").strip()
+        if candidate and Path(candidate).exists():
+            return candidate
+
+    for candidate in (
+        shutil.which("openclaw"),
+        "/opt/homebrew/bin/openclaw",
+        "/usr/local/bin/openclaw",
+        str(Path.home() / ".npm-global" / "bin" / "openclaw"),
+    ):
+        if candidate and Path(candidate).exists():
+            return candidate
+    return "openclaw"
 
 
 def utc_now() -> str:
@@ -31,9 +50,10 @@ def write_json(path: Path, data) -> None:
 
 
 def collect_runtime_signals(port_monitor_script: Path) -> Dict[str, object]:
+    openclaw_bin = resolve_openclaw_bin()
     openclaw_config = run_cmd(["cat", str(Path.home() / ".openclaw" / "openclaw.json")])
-    doctor = run_cmd(["openclaw", "doctor"])
-    gateway_status = run_cmd(["openclaw", "gateway", "status"])
+    doctor = run_cmd([openclaw_bin, "doctor"])
+    gateway_status = run_cmd([openclaw_bin, "gateway", "status"])
     port_report_raw = run_cmd(["python3", str(port_monitor_script), "--json"])
 
     try:

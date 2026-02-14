@@ -7,7 +7,13 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUNNER="${REPO_ROOT}/scripts/auto-invoke-security-cycle.sh"
+RUNNER_INSTALLED="${HOME}/.openclaw/workspace/skills/cyber-security-engineer/scripts/auto_invoke_cycle.sh"
+RUNNER_REPO="${REPO_ROOT}/scripts/auto-invoke-security-cycle.sh"
+if [[ -x "${RUNNER_INSTALLED}" ]]; then
+  RUNNER="${RUNNER_INSTALLED}"
+else
+  RUNNER="${RUNNER_REPO}"
+fi
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/ai.openclaw.cyber-security-engineer.plist"
 STDOUT_LOG="${HOME}/.openclaw/logs/cyber-security-engineer-launchd.out.log"
