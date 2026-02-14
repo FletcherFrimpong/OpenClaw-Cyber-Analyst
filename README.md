@@ -2,22 +2,17 @@
 
 Security automation skillset for OpenClaw.
 
-This repo adds a `cyber-security-engineer` skill that continuously checks your host/OpenClaw posture and updates a local compliance dashboard.
-It also adds an `openclaw-coder` skill so you can prompt OpenClaw to code on your behalf.
+This repo ships:
 
-## What This Skill Does
+- `cyber-security-engineer`: least-privilege enforcement helpers, port monitoring, and ISO 27001 + NIST benchmarking with a local dashboard.
+- `openclaw-coder`: a software engineering skill profile for coding tasks.
 
-- Enforces least-privilege workflow patterns for privileged actions
-- Requires approval-first execution pattern for elevated tasks
-- Applies 30-minute idle timeout logic for elevated sessions
-- Enforces per-task privilege scoping: approvals apply to the exact privileged command argv (different commands require new approval)
-- Monitors listening ports and flags insecure/unapproved exposure
-- Builds ISO 27001 + NIST control mapping and compliance dashboard views
-- Supports auto-invoke scheduling so checks run continuously
+## What The Cyber Security Engineer Skill Does
 
-## Least Privilege (How Root Is Scoped)
+### 1. Least-Privilege + Approval-First Privileged Execution
 
-The skill does not keep root open. Privileged actions should be executed via:
+- Default posture is **non-root**.
+- When privileged execution is needed, run it through:
 
 ```bash
 python3 cyber-security-engineer/scripts/guarded_privileged_exec.py \
@@ -26,26 +21,75 @@ python3 cyber-security-engineer/scripts/guarded_privileged_exec.py \
   -- <command> <args...>
 ```
 
-Behavior:
+This wrapper enforces:
 
-- Prompts for approval for the exact command argv it will run.
-- Records an allowlist entry for that argv for the current task session.
-- Drops back to normal after the command completes (default).
-- If you truly need multiple privileged steps, use `--keep-session` (still restricted to the allowlisted argv; expires on idle timeout).
+- User approval before privileged execution.
+- Per-task scoping: approvals apply to the **exact command argv** (different command requires new approval).
+- Automatic privilege drop after the command (default; `--keep-session` is available for multi-step tasks).
+- Append-only privileged audit trail at `~/.openclaw/security/privileged-audit.jsonl`.
 
-## Coding Skill
+### 2. Runtime Enforcement Hook (Optional)
 
-Skill name: `openclaw-coder`
+To reduce bypasses (running raw `sudo` instead of the wrapper), you can install a runtime hook that places a `sudo` shim at:
 
-Use this when you want OpenClaw to implement code tasks directly.
+`~/.openclaw/bin/sudo`
 
-Example prompts:
+Install:
 
-- `Use $openclaw-coder to add JWT auth middleware and tests.`
-- `Use $openclaw-coder to debug this failing endpoint and provide a patch.`
-- `Use $openclaw-coder to refactor this module for readability and keep behavior unchanged.`
+```bash
+./cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh
+openclaw gateway restart
+```
 
-## Recommended Install (New Users)
+Notes:
+
+- The shim is only effective if the OpenClaw gateway PATH includes `~/.openclaw/bin` before `/usr/bin`.
+- On macOS LaunchAgent installs, the installer attempts best-effort PATH injection into `~/Library/LaunchAgents/ai.openclaw.gateway.plist`.
+
+Skip hook during bootstrap:
+
+```bash
+ENFORCE_PRIVILEGED_EXEC=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
+```
+
+### 3. Listening Port Monitoring + Secure-Port Recommendations
+
+The skill inventories listening TCP ports and flags:
+
+- Unapproved listeners (not in approved baseline).
+- Insecure ports (e.g. 21/23/80/110/143/389, etc.) with secure recommendations.
+- Public binds (`0.0.0.0`, `::`, `*`) that increase exposure.
+
+Port discovery uses `lsof` when available, with fallbacks to `ss` (Linux) or `netstat` (Windows).
+
+### 4. Approved Ports Baseline
+
+Port monitoring compares listeners to an approved baseline file:
+
+`~/.openclaw/security/approved_ports.json`
+
+Generate a starter baseline from the current machine:
+
+```bash
+python3 cyber-security-engineer/scripts/generate_approved_ports.py
+```
+
+Then review and prune it. A starter template exists at:
+
+`cyber-security-engineer/references/approved_ports.template.json`
+
+### 5. ISO 27001 + NIST Compliance Dashboard
+
+The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories, including checks for:
+
+- Channel allowlists + group mention requirements
+- Gateway loopback + token auth validation
+- Secrets/config permission hardening
+- Privileged audit logging presence
+- Backup/recovery presence
+- Update hygiene (captures `openclaw --version`)
+
+## Install (New Users)
 
 From repo root:
 
@@ -54,20 +98,17 @@ chmod +x scripts/bootstrap-openclaw-cyber-analyst.sh
 ./scripts/bootstrap-openclaw-cyber-analyst.sh
 ```
 
-The bootstrap script:
+Bootstrap does:
 
-- Installs OpenClaw (with retry/cleanup for npm corruption issues)
+- Installs OpenClaw (npm) with retry/cleanup for common install issues
 - Runs `openclaw setup`
 - Applies secure defaults: `gateway.mode=local`, `gateway.bind=loopback`
 - Runs `openclaw doctor --fix`
-- Installs the skill in:
+- Installs the skill into:
   - `~/.codex/skills/cyber-security-engineer`
   - `~/.openclaw/workspace/skills/cyber-security-engineer`
-- Runs one immediate live security cycle
-- Enables auto-invoke scheduler by platform:
-  - macOS: LaunchAgent
-  - Linux: systemd user timer (fallback: cron)
-  - Windows: Task Scheduler script provided
+- Optionally installs the runtime enforcement hook (`ENFORCE_PRIVILEGED_EXEC=1` default)
+- Runs one immediate security cycle and enables auto-invoke scheduling
 
 Skip scheduler setup:
 
@@ -75,96 +116,20 @@ Skip scheduler setup:
 AUTO_INVOKE=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
 ```
 
-## Run It Manually
+## Run Manually
 
 ```bash
 ./scripts/auto-invoke-security-cycle.sh
 ```
 
-This refreshes:
+Outputs (refreshed each cycle):
 
 - `cyber-security-engineer/assessments/openclaw-assessment.json`
 - `cyber-security-engineer/assessments/compliance-summary.json`
 - `cyber-security-engineer/assessments/compliance-dashboard.html`
 - `cyber-security-engineer/assessments/port-monitor-latest.json`
 
-## Approved Ports Baseline
-
-Port monitoring compares listeners to an approved baseline. Generate one from current services:
-
-```bash
-python3 cyber-security-engineer/scripts/generate_approved_ports.py
-```
-
-This writes `~/.openclaw/security/approved_ports.json`. Review and prune it for approved services.
-A starter template is available at `cyber-security-engineer/references/approved_ports.template.json`.
-
-Port discovery uses `lsof` when available, with fallbacks to `ss` (Linux) or `netstat` (Windows).
-
-## Runtime Enforcement Hook
-
-Install a runtime hook that wraps `sudo` with approval enforcement for OpenClaw tasks:
-
-```bash
-./cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh
-```
-
-The bootstrap script enables this by default. To skip it:
-
-```bash
-ENFORCE_PRIVILEGED_EXEC=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
-```
-
-After installation, restart the OpenClaw gateway so it picks up the PATH override:
-
-```bash
-openclaw gateway restart
-```
-
-## Auto-Invoke (All Platforms)
-
-Auto-detect helper:
-
-```bash
-./scripts/enable-auto-invoke.sh
-./scripts/disable-auto-invoke.sh
-```
-
-Platform-specific:
-
-```bash
-# macOS
-./scripts/enable-auto-invoke-macos.sh
-./scripts/disable-auto-invoke-macos.sh
-
-# Linux (systemd)
-./scripts/enable-auto-invoke-linux-systemd.sh
-./scripts/disable-auto-invoke-linux-systemd.sh
-
-# Linux (cron fallback)
-./scripts/enable-auto-invoke-linux-cron.sh
-./scripts/disable-auto-invoke-linux-cron.sh
-```
-
-Windows (PowerShell; Task Scheduler + WSL runner):
-
-```powershell
-.\scripts\enable-auto-invoke-windows.ps1
-.\scripts\disable-auto-invoke-windows.ps1
-```
-
-## Dashboard
-
-Render manually:
-
-```bash
-python3 cyber-security-engineer/scripts/compliance_dashboard.py render \
-  --assessment-file cyber-security-engineer/assessments/openclaw-assessment.json \
-  --output-html cyber-security-engineer/assessments/compliance-dashboard.html \
-  --output-summary cyber-security-engineer/assessments/compliance-summary.json
-```
-
-Serve locally:
+## View The Dashboard Locally
 
 ```bash
 cd cyber-security-engineer/assessments
@@ -174,34 +139,6 @@ python3 -m http.server 8088
 Open:
 
 - `http://127.0.0.1:8088/compliance-dashboard.html`
-
-## Optional: Route Telegram To The Cyber Agent
-
-If you want Telegram messages to go to a dedicated `cyber-security-engineer` agent (instead of `main`), do this.
-
-1. Create the agent (safe, schema-valid):
-
-```bash
-openclaw agents add cyber-security-engineer \
-  --workspace ~/.openclaw/workspace \
-  --model openai/gpt-4.1-mini \
-  --non-interactive \
-  --json
-```
-
-2. Add a routing binding for Telegram (note: binding objects are `{agentId, match}`; fields like `name`, `action`, or `wakeMode` will fail config validation):
-
-```bash
-openclaw config set bindings '[{"agentId":"cyber-security-engineer","match":{"channel":"telegram","accountId":"default"}}]' --json
-openclaw gateway restart
-```
-
-To undo:
-
-```bash
-openclaw config unset bindings
-openclaw gateway restart
-```
 
 ## Troubleshooting
 
@@ -222,3 +159,4 @@ openclaw config set gateway.bind loopback
 openclaw doctor --fix
 openclaw gateway restart
 ```
+

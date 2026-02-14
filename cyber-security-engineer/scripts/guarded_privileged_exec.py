@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from typing import List
 
+# Allow importing audit_logger when executed as a script from arbitrary cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from audit_logger import append_audit  # noqa: E402
+
 
 def run_guard(args, *guard_args):
     cmd = [
@@ -22,12 +26,22 @@ def run_guard(args, *guard_args):
 
 
 def ask_for_approval(reason: str, command_argv: List[str]) -> bool:
+    append_audit({"action": "approval_requested", "reason": reason, "argv": command_argv})
     print("Approval required for elevated execution.")
     print(f"Reason: {reason}")
     print("Command argv:")
     print(json.dumps(command_argv, indent=2))
     answer = input("Approve elevated access for this command? [y/N]: ").strip().lower()
-    return answer in {"y", "yes"}
+    approved = answer in {"y", "yes"}
+    append_audit(
+        {
+            "action": "approval_decision",
+            "reason": reason,
+            "argv": command_argv,
+            "approved": approved,
+        }
+    )
+    return approved
 
 
 def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
@@ -38,7 +52,17 @@ def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
     if use_sudo and sudo_kill_cache:
         # Best-effort: ensure sudo timestamp for this user is not reused implicitly.
         subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
+
+    append_audit({"action": "exec_start", "argv": argv, "use_sudo": use_sudo})
     result = subprocess.run(exec_argv)
+    append_audit(
+        {
+            "action": "exec_finish",
+            "argv": argv,
+            "use_sudo": use_sudo,
+            "returncode": result.returncode,
+        }
+    )
     return result.returncode
 
 
@@ -110,6 +134,7 @@ def main() -> int:
     if needs_approval and not ask_for_approval(args.reason, argv):
         print("User denied elevated access. Running in normal mode is required.")
         run_guard(args, "normal-used")
+        append_audit({"action": "approval_denied", "reason": args.reason, "argv": argv})
         return 1
 
     if needs_approval:
@@ -117,6 +142,7 @@ def main() -> int:
         if approve.returncode != 0:
             sys.stderr.write(approve.stderr or approve.stdout)
             return approve.returncode
+        append_audit({"action": "approval_granted", "reason": args.reason, "argv": argv})
 
     try:
         # Mark elevated activity if we're about to use sudo.
@@ -128,6 +154,7 @@ def main() -> int:
         # If --keep-session is set, elevated session remains active, but only allowlisted argv are authorized.
         if not args.keep_session:
             run_guard(args, "drop")
+            append_audit({"action": "drop_elevation", "argv": argv, "reason": "post-command"})
         if args.use_sudo and args.sudo_kill_cache:
             sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "sudo")
             subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
@@ -135,3 +162,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
