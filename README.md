@@ -1,73 +1,71 @@
 # OpenClaw-Cyber-Analyst
-This is to ensure your openclaw setup is running securely in your environment. 
 
-## Recommended Installation (One Command)
+Security automation skillset for OpenClaw.
 
-From this repo root:
+This repo adds a `cyber-security-engineer` skill that continuously checks your host/OpenClaw posture and updates a local compliance dashboard.
+
+## What This Skill Does
+
+- Enforces least-privilege workflow patterns for privileged actions
+- Requires approval-first execution pattern for elevated tasks
+- Applies 30-minute idle timeout logic for elevated sessions
+- Monitors listening ports and flags insecure/unapproved exposure
+- Builds ISO 27001 + NIST control mapping and compliance dashboard views
+- Supports auto-invoke scheduling so checks run continuously
+
+## Recommended Install (New Users)
+
+From repo root:
 
 ```bash
 chmod +x scripts/bootstrap-openclaw-cyber-analyst.sh
 ./scripts/bootstrap-openclaw-cyber-analyst.sh
 ```
 
-This script:
-- Installs OpenClaw (with automatic retry/cleanup for common npm corruption issues)
+The bootstrap script:
+
+- Installs OpenClaw (with retry/cleanup for npm corruption issues)
 - Runs `openclaw setup`
-- Applies secure gateway defaults (`gateway.mode=local`, `gateway.bind=loopback`)
+- Applies secure defaults: `gateway.mode=local`, `gateway.bind=loopback`
 - Runs `openclaw doctor --fix`
-- Installs this skill in both:
+- Installs the skill in:
   - `~/.codex/skills/cyber-security-engineer`
   - `~/.openclaw/workspace/skills/cyber-security-engineer`
-- Runs one immediate security cycle (live assessment + dashboard refresh)
-- Enables auto-invoke on supported platforms:
+- Runs one immediate live security cycle
+- Enables auto-invoke scheduler by platform:
   - macOS: LaunchAgent
   - Linux: systemd user timer (fallback: cron)
-  - Windows: use provided PowerShell scheduler script
-- Restarts gateway and runs readiness checks
+  - Windows: Task Scheduler script provided
 
-To skip auto-invoke setup:
+Skip scheduler setup:
 
 ```bash
 AUTO_INVOKE=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
 ```
 
-## Included Skill
-
-- `cyber-security-engineer/`
-  - Least-privilege + approval-first elevated execution
-  - 30-minute idle timeout for elevated sessions
-  - Port monitoring with insecure-port recommendations
-  - ISO 27001 / NIST compliance dashboard scaffold
-
-## Quick Start
-
-```bash
-python3 ~/.openclaw/workspace/skills/cyber-security-engineer/scripts/port_monitor.py --json
-python3 ~/.openclaw/workspace/skills/cyber-security-engineer/scripts/compliance_dashboard.py init-assessment --system "OpenClaw"
-python3 ~/.openclaw/workspace/skills/cyber-security-engineer/scripts/compliance_dashboard.py render
-```
-
-## Auto-Invoke Security Mode
-
-Run one cycle manually:
+## Run It Manually
 
 ```bash
 ./scripts/auto-invoke-security-cycle.sh
 ```
 
-Enable persistent auto-invoke (auto-detect platform):
+This refreshes:
+
+- `cyber-security-engineer/assessments/openclaw-assessment.json`
+- `cyber-security-engineer/assessments/compliance-summary.json`
+- `cyber-security-engineer/assessments/compliance-dashboard.html`
+- `cyber-security-engineer/assessments/port-monitor-latest.json`
+
+## Auto-Invoke (All Platforms)
+
+Auto-detect helper:
 
 ```bash
 ./scripts/enable-auto-invoke.sh
-```
-
-Disable persistent auto-invoke (auto-detect platform):
-
-```bash
 ./scripts/disable-auto-invoke.sh
 ```
 
-Platform-specific options:
+Platform-specific:
 
 ```bash
 # macOS
@@ -83,16 +81,38 @@ Platform-specific options:
 ./scripts/disable-auto-invoke-linux-cron.sh
 ```
 
-Windows (PowerShell, uses Task Scheduler + WSL bash runner):
+Windows (PowerShell; Task Scheduler + WSL runner):
 
 ```powershell
 .\scripts\enable-auto-invoke-windows.ps1
 .\scripts\disable-auto-invoke-windows.ps1
 ```
 
+## Dashboard
+
+Render manually:
+
+```bash
+python3 cyber-security-engineer/scripts/compliance_dashboard.py render \
+  --assessment-file cyber-security-engineer/assessments/openclaw-assessment.json \
+  --output-html cyber-security-engineer/assessments/compliance-dashboard.html \
+  --output-summary cyber-security-engineer/assessments/compliance-summary.json
+```
+
+Serve locally:
+
+```bash
+cd cyber-security-engineer/assessments
+python3 -m http.server 8088
+```
+
+Open:
+
+- `http://127.0.0.1:8088/compliance-dashboard.html`
+
 ## Troubleshooting
 
-If global install fails with `npm WARN tar TAR_ENTRY_ERROR` or `ENOENT`:
+If global install fails with `TAR_ENTRY_ERROR` or `ENOENT`:
 
 ```bash
 npm uninstall -g openclaw || true
@@ -101,7 +121,7 @@ npm cache verify
 env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund --no-audit install -g openclaw@latest
 ```
 
-If OpenClaw reports gateway mode/bind problems:
+If gateway mode/bind is wrong:
 
 ```bash
 openclaw config set gateway.mode local
