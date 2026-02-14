@@ -18,7 +18,18 @@ This script:
 - Installs this skill in both:
   - `~/.codex/skills/cyber-security-engineer`
   - `~/.openclaw/workspace/skills/cyber-security-engineer`
+- Runs one immediate security cycle (live assessment + dashboard refresh)
+- Enables auto-invoke on supported platforms:
+  - macOS: LaunchAgent
+  - Linux: systemd user timer (fallback: cron)
+  - Windows: use provided PowerShell scheduler script
 - Restarts gateway and runs readiness checks
+
+To skip auto-invoke setup:
+
+```bash
+AUTO_INVOKE=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
+```
 
 ## Included Skill
 
@@ -34,6 +45,49 @@ This script:
 python3 ~/.openclaw/workspace/skills/cyber-security-engineer/scripts/port_monitor.py --json
 python3 ~/.openclaw/workspace/skills/cyber-security-engineer/scripts/compliance_dashboard.py init-assessment --system "OpenClaw"
 python3 ~/.openclaw/workspace/skills/cyber-security-engineer/scripts/compliance_dashboard.py render
+```
+
+## Auto-Invoke Security Mode
+
+Run one cycle manually:
+
+```bash
+./scripts/auto-invoke-security-cycle.sh
+```
+
+Enable persistent auto-invoke (auto-detect platform):
+
+```bash
+./scripts/enable-auto-invoke.sh
+```
+
+Disable persistent auto-invoke (auto-detect platform):
+
+```bash
+./scripts/disable-auto-invoke.sh
+```
+
+Platform-specific options:
+
+```bash
+# macOS
+./scripts/enable-auto-invoke-macos.sh
+./scripts/disable-auto-invoke-macos.sh
+
+# Linux (systemd)
+./scripts/enable-auto-invoke-linux-systemd.sh
+./scripts/disable-auto-invoke-linux-systemd.sh
+
+# Linux (cron fallback)
+./scripts/enable-auto-invoke-linux-cron.sh
+./scripts/disable-auto-invoke-linux-cron.sh
+```
+
+Windows (PowerShell, uses Task Scheduler + WSL bash runner):
+
+```powershell
+.\scripts\enable-auto-invoke-windows.ps1
+.\scripts\disable-auto-invoke-windows.ps1
 ```
 
 ## Troubleshooting

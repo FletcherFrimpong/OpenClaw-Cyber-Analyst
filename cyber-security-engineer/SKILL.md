@@ -24,6 +24,7 @@ Implement these controls in every security-sensitive task:
 - `scripts/guarded_privileged_exec.py`: Wrapper that enforces approval-first elevated execution and immediate privilege drop.
 - `scripts/port_monitor.py`: Listening-port inventory, insecure-port detection, and recommendations.
 - `scripts/compliance_dashboard.py`: Assessment scaffold and dashboard renderer for controls map, violations, risk, and mitigations.
+- `scripts/live_assessment.py`: Populate assessment findings from current machine/OpenClaw runtime state.
 
 ## Workflow
 
@@ -45,6 +46,10 @@ Implement these controls in every security-sensitive task:
 9. Update assessment values based on observed controls and evidence.
 10. Render dashboard views:
    - `python3 scripts/compliance_dashboard.py render`
+11. For auto-run mode, execute periodic cycle from repo root:
+   - `./scripts/auto-invoke-security-cycle.sh`
+12. Enable cross-platform scheduler auto-invoke from repo root:
+   - `./scripts/enable-auto-invoke.sh`
 
 ## Preferred Privileged Executor
 

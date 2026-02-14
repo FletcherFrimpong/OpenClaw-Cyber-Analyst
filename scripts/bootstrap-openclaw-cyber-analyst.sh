@@ -6,6 +6,7 @@ SKILL_SRC="${REPO_ROOT}/cyber-security-engineer"
 SKILL_NAME="cyber-security-engineer"
 CODEX_SKILLS_DIR="${HOME}/.codex/skills"
 OPENCLAW_SKILLS_DIR="${HOME}/.openclaw/workspace/skills"
+AUTO_INVOKE="${AUTO_INVOKE:-1}"
 
 log() {
   printf '[openclaw-cyber-analyst] %s\n' "$*"
@@ -85,6 +86,23 @@ verify_install() {
   log "Bootstrap complete."
 }
 
+enable_auto_invoke() {
+  if [[ "${AUTO_INVOKE}" != "1" ]]; then
+    log "AUTO_INVOKE disabled; skipping auto-run service setup."
+    return
+  fi
+
+  log "Running immediate security cycle..."
+  bash "${REPO_ROOT}/scripts/auto-invoke-security-cycle.sh"
+
+  log "Enabling platform auto-invoke scheduler..."
+  if ! bash "${REPO_ROOT}/scripts/enable-auto-invoke.sh"; then
+    log "Auto scheduler setup failed. Configure your scheduler to run:"
+    log "  ${REPO_ROOT}/scripts/auto-invoke-security-cycle.sh"
+    log "Recommended interval: every 30 minutes."
+  fi
+}
+
 main() {
   require_cmd npm
   require_cmd python3
@@ -92,6 +110,7 @@ main() {
   require_cmd openclaw
   configure_openclaw
   install_skill
+  enable_auto_invoke
   verify_install
 }
 
