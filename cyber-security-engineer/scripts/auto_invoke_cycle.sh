@@ -25,6 +25,8 @@ mkdir -p "${LOG_DIR}" "${ASSESS_DIR}"
     --assessment-file "${ASSESS_FILE}" \
     --output-html "${HTML_OUT}" \
     --output-summary "${SUMMARY_OUT}"
+  # Optional: notify when new violations/partials appear between cycles.
+  python3 "${SKILL_DIR}/scripts/notify_on_violation.py" --summary-file "${SUMMARY_OUT}" || true
   python3 "${SKILL_DIR}/scripts/port_monitor.py" --json > "${PORT_OUT}"
   python3 "${SKILL_DIR}/scripts/egress_monitor.py" --json > "${EGRESS_OUT}"
 

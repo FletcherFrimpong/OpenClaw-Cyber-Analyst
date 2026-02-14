@@ -118,6 +118,22 @@ export OPENCLAW_APPROVAL_TOKEN="<token>"
 
 Privileged approvals will require the token entry.
 
+## Notifications On New Violations (Optional)
+
+If you want to be alerted when *new* violations/partials appear between security cycles, set:
+
+```bash
+export OPENCLAW_VIOLATION_NOTIFY_CMD="<command>"
+```
+
+OpenClaw will execute this command and pipe a notification message to its stdin.
+
+Example (log to system logger):
+
+```bash
+export OPENCLAW_VIOLATION_NOTIFY_CMD="logger -t openclaw-cyber-security-engineer"
+```
+
 ## Compliance Dashboard (ISO 27001 + NIST)
 
 The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories, including checks for:
@@ -170,4 +186,3 @@ python3 -m http.server 8088
 Open:
 
 - `http://127.0.0.1:8088/compliance-dashboard.html`
-
