@@ -3,15 +3,47 @@
 Security automation skillset for OpenClaw.
 
 This repo adds a `cyber-security-engineer` skill that continuously checks your host/OpenClaw posture and updates a local compliance dashboard.
+It also adds an `openclaw-coder` skill so you can prompt OpenClaw to code on your behalf.
 
 ## What This Skill Does
 
 - Enforces least-privilege workflow patterns for privileged actions
 - Requires approval-first execution pattern for elevated tasks
 - Applies 30-minute idle timeout logic for elevated sessions
+- Enforces per-task privilege scoping: approvals apply to the exact privileged command argv (different commands require new approval)
 - Monitors listening ports and flags insecure/unapproved exposure
 - Builds ISO 27001 + NIST control mapping and compliance dashboard views
 - Supports auto-invoke scheduling so checks run continuously
+
+## Least Privilege (How Root Is Scoped)
+
+The skill does not keep root open. Privileged actions should be executed via:
+
+```bash
+python3 cyber-security-engineer/scripts/guarded_privileged_exec.py \
+  --reason "why root is needed" \
+  --use-sudo \
+  -- <command> <args...>
+```
+
+Behavior:
+
+- Prompts for approval for the exact command argv it will run.
+- Records an allowlist entry for that argv for the current task session.
+- Drops back to normal after the command completes (default).
+- If you truly need multiple privileged steps, use `--keep-session` (still restricted to the allowlisted argv; expires on idle timeout).
+
+## Coding Skill
+
+Skill name: `openclaw-coder`
+
+Use this when you want OpenClaw to implement code tasks directly.
+
+Example prompts:
+
+- `Use $openclaw-coder to add JWT auth middleware and tests.`
+- `Use $openclaw-coder to debug this failing endpoint and provide a patch.`
+- `Use $openclaw-coder to refactor this module for readability and keep behavior unchanged.`
 
 ## Recommended Install (New Users)
 
@@ -109,6 +141,34 @@ python3 -m http.server 8088
 Open:
 
 - `http://127.0.0.1:8088/compliance-dashboard.html`
+
+## Optional: Route Telegram To The Cyber Agent
+
+If you want Telegram messages to go to a dedicated `cyber-security-engineer` agent (instead of `main`), do this.
+
+1. Create the agent (safe, schema-valid):
+
+```bash
+openclaw agents add cyber-security-engineer \
+  --workspace ~/.openclaw/workspace \
+  --model openai/gpt-4.1-mini \
+  --non-interactive \
+  --json
+```
+
+2. Add a routing binding for Telegram (note: binding objects are `{agentId, match}`; fields like `name`, `action`, or `wakeMode` will fail config validation):
+
+```bash
+openclaw config set bindings '[{"agentId":"cyber-security-engineer","match":{"channel":"telegram","accountId":"default"}}]' --json
+openclaw gateway restart
+```
+
+To undo:
+
+```bash
+openclaw config unset bindings
+openclaw gateway restart
+```
 
 ## Troubleshooting
 

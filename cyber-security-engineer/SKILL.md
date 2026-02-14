@@ -59,11 +59,11 @@ Use this wrapper for elevated commands:
 
 Behavior:
 
-1. Runs preflight timeout check.
-2. Prompts for approval when needed.
-3. Marks elevated usage.
-4. Executes command.
-5. Always drops elevation after command completion.
+1. Authorizes the exact command argv against an elevated allowlist.
+2. Prompts for approval if the argv is not already allowlisted for the current elevated session.
+3. Adds the argv to the allowlist for the current task session (least privilege).
+4. Executes the command (no `shell=True`; argv-safe execution).
+5. Drops elevation after command completion by default (use `--keep-session` only when a task needs multiple privileged steps).
 
 ## Required Behaviors
 

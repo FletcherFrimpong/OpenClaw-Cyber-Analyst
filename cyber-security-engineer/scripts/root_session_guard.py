@@ -2,10 +2,10 @@
 import argparse
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 
 DEFAULT_TIMEOUT_MINUTES = 30
@@ -29,12 +29,21 @@ def from_iso(value: Optional[str]) -> Optional[datetime]:
 
 
 @dataclass
+class AllowedCommand:
+    argv: List[str]
+    added_at_utc: str
+
+
+@dataclass
 class SessionState:
     privilege_mode: str
     last_elevated_activity_utc: Optional[str]
     last_normal_activity_utc: Optional[str]
     last_transition_utc: str
     last_action: str
+    # When in elevated mode, restrict which privileged commands are allowed to run.
+    allowed_commands: List[AllowedCommand] = field(default_factory=list)
+    approved_reason: Optional[str] = None
 
     def as_dict(self) -> Dict[str, Optional[str]]:
         return {
@@ -43,6 +52,11 @@ class SessionState:
             "last_normal_activity_utc": self.last_normal_activity_utc,
             "last_transition_utc": self.last_transition_utc,
             "last_action": self.last_action,
+            "approved_reason": self.approved_reason,
+            "allowed_commands": [
+                {"argv": e.argv, "added_at_utc": e.added_at_utc}
+                for e in self.allowed_commands
+            ],
         }
 
 
@@ -58,6 +72,8 @@ def default_state() -> SessionState:
         last_normal_activity_utc=ts,
         last_transition_utc=ts,
         last_action="init-normal",
+        allowed_commands=[],
+        approved_reason=None,
     )
 
 
@@ -68,12 +84,26 @@ def load_state(path: Path) -> SessionState:
         return state
     with path.open("r", encoding="utf-8") as f:
         raw = json.load(f)
+    allowed_raw = raw.get("allowed_commands") or []
+    allowed: List[AllowedCommand] = []
+    if isinstance(allowed_raw, list):
+        for entry in allowed_raw:
+            if not isinstance(entry, dict):
+                continue
+            argv = entry.get("argv")
+            added_at_utc = entry.get("added_at_utc")
+            if isinstance(argv, list) and all(isinstance(x, str) for x in argv) and isinstance(
+                added_at_utc, str
+            ):
+                allowed.append(AllowedCommand(argv=argv, added_at_utc=added_at_utc))
     return SessionState(
         privilege_mode=raw.get("privilege_mode", "normal"),
         last_elevated_activity_utc=raw.get("last_elevated_activity_utc"),
         last_normal_activity_utc=raw.get("last_normal_activity_utc"),
         last_transition_utc=raw.get("last_transition_utc", to_iso(now_utc())),
         last_action=raw.get("last_action", "unknown"),
+        allowed_commands=allowed,
+        approved_reason=raw.get("approved_reason"),
     )
 
 
@@ -104,10 +134,13 @@ def preflight(state: SessionState, timeout_minutes: int) -> int:
     approval_required = True
     if state.privilege_mode == "elevated" and not timed_out:
         action = "elevated-active"
+        # Approval is still required per-command unless the command is already allowlisted.
         approval_required = False
     elif timed_out:
         action = "drop-elevation"
         state.privilege_mode = "normal"
+        state.allowed_commands = []
+        state.approved_reason = None
         state.last_transition_utc = to_iso(now_utc())
         state.last_action = "timeout-drop"
 
@@ -117,9 +150,59 @@ def preflight(state: SessionState, timeout_minutes: int) -> int:
         "idle_minutes_since_elevated": idle_mins,
         "timeout_minutes": timeout_minutes,
         "action": action,
+        "allowed_commands_count": len(state.allowed_commands),
     }
     print(json.dumps(result, indent=2))
     return 2 if approval_required else 0
+
+
+def is_allowed(state: SessionState, argv: List[str]) -> bool:
+    if not argv:
+        return False
+    for entry in state.allowed_commands:
+        if entry.argv == argv:
+            return True
+    return False
+
+
+def authorize(state: SessionState, timeout_minutes: int, argv: List[str]) -> int:
+    idle_mins = minutes_since(state.last_elevated_activity_utc)
+    timed_out = (
+        state.privilege_mode == "elevated"
+        and idle_mins is not None
+        and idle_mins >= timeout_minutes
+    )
+    if timed_out:
+        state.privilege_mode = "normal"
+        state.allowed_commands = []
+        state.approved_reason = None
+        state.last_transition_utc = to_iso(now_utc())
+        state.last_action = "timeout-drop"
+
+    allowed = state.privilege_mode == "elevated" and is_allowed(state, argv)
+    approval_required = not allowed
+
+    result = {
+        "status": "REQUIRES_APPROVAL" if approval_required else "AUTHORIZED",
+        "privilege_mode": state.privilege_mode,
+        "idle_minutes_since_elevated": idle_mins,
+        "timeout_minutes": timeout_minutes,
+        "allowed": allowed,
+        "allowed_commands_count": len(state.allowed_commands),
+    }
+    print(json.dumps(result, indent=2))
+    return 2 if approval_required else 0
+
+
+def approve_command(state: SessionState, reason: str, argv: List[str]) -> None:
+    ts = to_iso(now_utc())
+    state.privilege_mode = "elevated"
+    state.last_elevated_activity_utc = ts
+    state.last_transition_utc = ts
+    state.last_action = "approved-command"
+    state.approved_reason = reason
+    if argv and not is_allowed(state, argv):
+        state.allowed_commands.append(AllowedCommand(argv=argv, added_at_utc=ts))
 
 
 def mark_elevated_used(state: SessionState) -> None:
@@ -141,6 +224,8 @@ def mark_normal_used(state: SessionState) -> None:
 def drop(state: SessionState, reason: str) -> None:
     ts = to_iso(now_utc())
     state.privilege_mode = "normal"
+    state.allowed_commands = []
+    state.approved_reason = None
     state.last_transition_utc = ts
     state.last_action = reason
 
@@ -176,6 +261,25 @@ def parse_args() -> argparse.Namespace:
 
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("preflight", help="Check timeout and approval requirement")
+    authz = sub.add_parser(
+        "authorize",
+        help="Authorize a specific argv against the current elevated allowlist",
+    )
+    authz.add_argument(
+        "--argv-json",
+        required=True,
+        help='Command argv as JSON array, e.g. ["launchctl","print","..."]',
+    )
+    approve = sub.add_parser(
+        "approve",
+        help="Approve a specific argv for elevated execution (adds to allowlist)",
+    )
+    approve.add_argument("--reason", required=True, help="Approval reason")
+    approve.add_argument(
+        "--argv-json",
+        required=True,
+        help='Command argv as JSON array, e.g. ["launchctl","print","..."]',
+    )
     sub.add_parser("elevated-used", help="Mark elevated mode as used now")
     sub.add_parser("normal-used", help="Mark normal mode activity now")
     sub.add_parser("drop", help="Drop to normal mode")
@@ -192,6 +296,23 @@ def main() -> int:
         code = preflight(state, args.timeout_minutes)
         save_state(state_file, state)
         return code
+    if args.command == "authorize":
+        argv = json.loads(args.argv_json)
+        if not isinstance(argv, list) or not all(isinstance(x, str) for x in argv):
+            print('{"status":"ERROR","error":"argv-json must be a JSON array of strings"}')
+            return 2
+        code = authorize(state, args.timeout_minutes, argv)
+        save_state(state_file, state)
+        return code
+    if args.command == "approve":
+        argv = json.loads(args.argv_json)
+        if not isinstance(argv, list) or not all(isinstance(x, str) for x in argv):
+            print('{"status":"ERROR","error":"argv-json must be a JSON array of strings"}')
+            return 2
+        approve_command(state, args.reason, argv)
+        save_state(state_file, state)
+        print('{"status":"OK","action":"approved-command"}')
+        return 0
     if args.command == "elevated-used":
         mark_elevated_used(state)
         save_state(state_file, state)
