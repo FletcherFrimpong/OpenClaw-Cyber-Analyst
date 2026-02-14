@@ -2,16 +2,13 @@
 
 Security automation skillset for OpenClaw.
 
-This repo ships:
+This repo ships the `cyber-security-engineer` skill: least-privilege guardrails, port and egress monitoring, and ISO 27001 + NIST benchmarking with a local dashboard.
 
-- `cyber-security-engineer`: least-privilege enforcement helpers, port monitoring, and ISO 27001 + NIST benchmarking with a local dashboard.
+## Core Capabilities
 
-## What The Cyber Security Engineer Skill Does
+### Least Privilege, Scoped Approvals, Audit Trail
 
-### 1. Least-Privilege + Approval-First Privileged Execution
-
-- Default posture is **non-root**.
-- When privileged execution is needed, run it through:
+Privileged actions should be executed through:
 
 ```bash
 python3 cyber-security-engineer/scripts/guarded_privileged_exec.py \
@@ -20,16 +17,16 @@ python3 cyber-security-engineer/scripts/guarded_privileged_exec.py \
   -- <command> <args...>
 ```
 
-This wrapper enforces:
+This enforces:
 
-- User approval before privileged execution.
-- Per-task scoping: approvals apply to the **exact command argv** (different command requires new approval).
-- Automatic privilege drop after the command (default; `--keep-session` is available for multi-step tasks).
-- Append-only privileged audit trail at `~/.openclaw/security/privileged-audit.jsonl`.
+- Approval-first privileged execution
+- Per-task scoping (optional): approvals can be scoped to a task session id
+- Automatic drop back to normal after the command (default; `--keep-session` is available)
+- Append-only privileged audit log: `~/.openclaw/security/privileged-audit.jsonl`
 
-### 2. Runtime Enforcement Hook (Optional)
+### Runtime Enforcement Hook (Optional)
 
-To reduce bypasses (running raw `sudo` instead of the wrapper), you can install a runtime hook that places a `sudo` shim at:
+To reduce bypasses (running raw `sudo`), install the runtime hook which places a `sudo` shim at:
 
 `~/.openclaw/bin/sudo`
 
@@ -40,44 +37,88 @@ Install:
 openclaw gateway restart
 ```
 
-Notes:
-
-- The shim is only effective if the OpenClaw gateway PATH includes `~/.openclaw/bin` before `/usr/bin`.
-- On macOS LaunchAgent installs, the installer attempts best-effort PATH injection into `~/Library/LaunchAgents/ai.openclaw.gateway.plist`.
-
 Skip hook during bootstrap:
 
 ```bash
 ENFORCE_PRIVILEGED_EXEC=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
 ```
 
-### 3. Listening Port Monitoring + Secure-Port Recommendations
+### Listening Port Monitoring + Approved Baseline
 
-The skill inventories listening TCP ports and flags:
+Port monitoring inventories listening TCP ports and flags:
 
-- Unapproved listeners (not in approved baseline).
-- Insecure ports (e.g. 21/23/80/110/143/389, etc.) with secure recommendations.
-- Public binds (`0.0.0.0`, `::`, `*`) that increase exposure.
+- Unapproved listeners (not in baseline)
+- Insecure ports (with safer recommendations)
+- Public binds (`0.0.0.0`, `::`, `*`)
 
-Port discovery uses `lsof` when available, with fallbacks to `ss` (Linux) or `netstat` (Windows).
-
-### 4. Approved Ports Baseline
-
-Port monitoring compares listeners to an approved baseline file:
+Approved baseline file:
 
 `~/.openclaw/security/approved_ports.json`
 
-Generate a starter baseline from the current machine:
+Generate a baseline from current listeners:
 
 ```bash
 python3 cyber-security-engineer/scripts/generate_approved_ports.py
 ```
 
-Then review and prune it. A starter template exists at:
+Template:
 
 `cyber-security-engineer/references/approved_ports.template.json`
 
-### 5. ISO 27001 + NIST Compliance Dashboard
+### Egress Monitoring (Outbound Allowlist)
+
+Egress monitoring inventories outbound TCP connections and compares them to:
+
+`~/.openclaw/security/egress_allowlist.json`
+
+Run:
+
+```bash
+python3 cyber-security-engineer/scripts/egress_monitor.py --json
+```
+
+Template:
+
+`cyber-security-engineer/references/egress-allowlist.template.json`
+
+## Advanced Guardrails (Optional)
+
+### Command Policy (Allow/Deny)
+
+Create `~/.openclaw/security/command-policy.json` using:
+
+`cyber-security-engineer/references/command-policy.template.json`
+
+If `allow` is non-empty, only matching commands are permitted. Any `deny` match blocks execution.
+
+### Prompt-Injection Confirmation
+
+Create `~/.openclaw/security/prompt-policy.json` using:
+
+`cyber-security-engineer/references/prompt-policy.template.json`
+
+When `OPENCLAW_UNTRUSTED_SOURCE=1` is set, privileged actions require explicit confirmation.
+
+### Task Session Boundary Enforcement
+
+To scope approvals to a task:
+
+```bash
+export OPENCLAW_REQUIRE_SESSION_ID=1
+export OPENCLAW_TASK_SESSION_ID="<task-id>"
+```
+
+### Multi-Factor Approval (Token)
+
+Set an approval token in `~/.openclaw/env`:
+
+```bash
+export OPENCLAW_APPROVAL_TOKEN="<token>"
+```
+
+Privileged approvals will require the token entry.
+
+## Compliance Dashboard (ISO 27001 + NIST)
 
 The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories, including checks for:
 
@@ -87,6 +128,8 @@ The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories, 
 - Privileged audit logging presence
 - Backup/recovery presence
 - Update hygiene (captures `openclaw --version`)
+- Prompt-injection controls, command policy, session boundaries, MFA approvals
+- Egress allowlist + unapproved outbound connections
 
 ## Install (New Users)
 
@@ -97,19 +140,7 @@ chmod +x scripts/bootstrap-openclaw-cyber-analyst.sh
 ./scripts/bootstrap-openclaw-cyber-analyst.sh
 ```
 
-Bootstrap does:
-
-- Installs OpenClaw (npm) with retry/cleanup for common install issues
-- Runs `openclaw setup`
-- Applies secure defaults: `gateway.mode=local`, `gateway.bind=loopback`
-- Runs `openclaw doctor --fix`
-- Installs the skill into:
-  - `~/.codex/skills/cyber-security-engineer`
-  - `~/.openclaw/workspace/skills/cyber-security-engineer`
-- Optionally installs the runtime enforcement hook (`ENFORCE_PRIVILEGED_EXEC=1` default)
-- Runs one immediate security cycle and enables auto-invoke scheduling
-
-Skip scheduler setup:
+Skip scheduler:
 
 ```bash
 AUTO_INVOKE=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
@@ -127,8 +158,9 @@ Outputs (refreshed each cycle):
 - `cyber-security-engineer/assessments/compliance-summary.json`
 - `cyber-security-engineer/assessments/compliance-dashboard.html`
 - `cyber-security-engineer/assessments/port-monitor-latest.json`
+- `cyber-security-engineer/assessments/egress-monitor-latest.json`
 
-## View The Dashboard Locally
+## View Dashboard Locally
 
 ```bash
 cd cyber-security-engineer/assessments
@@ -139,22 +171,3 @@ Open:
 
 - `http://127.0.0.1:8088/compliance-dashboard.html`
 
-## Troubleshooting
-
-If global install fails with `TAR_ENTRY_ERROR` or `ENOENT`:
-
-```bash
-npm uninstall -g openclaw || true
-npm root -g | xargs -I{} sh -lc 'rm -rf {}/openclaw {}/.openclaw-*'
-npm cache verify
-env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund --no-audit install -g openclaw@latest
-```
-
-If gateway mode/bind is wrong:
-
-```bash
-openclaw config set gateway.mode local
-openclaw config set gateway.bind loopback
-openclaw doctor --fix
-openclaw gateway restart
-```

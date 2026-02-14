@@ -110,5 +110,54 @@
     "nist": ["ID.RA-01"],
     "default_risk": "low",
     "expected_state": "OpenClaw is updated regularly and version is tracked."
+  },
+  {
+    "check_id": "prompt_injection_controls",
+    "title": "Prompt injection controls",
+    "iso27001": ["A.5.15", "A.5.18"],
+    "nist": ["PR.AA-01"],
+    "default_risk": "high",
+    "expected_state": "Untrusted content sources require explicit confirmation before privileged execution."
+  },
+  {
+    "check_id": "command_policy_enforced",
+    "title": "Privileged command policy enforced",
+    "iso27001": ["A.5.15"],
+    "nist": ["PR.AA-05"],
+    "default_risk": "high",
+    "expected_state": "Privileged commands are filtered by allow/deny policy."
+  },
+  {
+    "check_id": "session_boundary_enforced",
+    "title": "Task session boundary enforced",
+    "iso27001": ["A.5.15"],
+    "nist": ["PR.AA-03"],
+    "default_risk": "medium",
+    "expected_state": "Privileged approvals are scoped to a task session id."
+  },
+  {
+    "check_id": "multi_factor_approval",
+    "title": "Multi-factor approval for privileged actions",
+    "iso27001": ["A.5.17"],
+    "nist": ["PR.AA-02"],
+    "default_risk": "medium",
+    "expected_state": "Privileged approvals require an additional approval token."
+  },
+  {
+    "check_id": "egress_allowlist_configured",
+    "title": "Outbound allowlist configured",
+    "iso27001": ["A.8.20"],
+    "nist": ["PR.PS-02"],
+    "default_risk": "medium",
+    "expected_state": "Outbound destinations are allowlisted."
+  },
+  {
+    "check_id": "egress_connections_approved",
+    "title": "Outbound connections approved",
+    "iso27001": ["A.8.20"],
+    "nist": ["DE.CM-01"],
+    "default_risk": "medium",
+    "expected_state": "No unapproved outbound connections are detected."
+  }
   }
 ]

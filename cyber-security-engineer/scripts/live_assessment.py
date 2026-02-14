@@ -16,17 +16,16 @@ OPENCLAW_DIR = Path.home() / ".openclaw"
 def run_cmd(cmd: List[str]) -> str:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        return proc.stdout + "\n" + proc.stderr
+        return (proc.stdout or "") + "\n" + (proc.stderr or "")
     return proc.stdout
 
 
 def resolve_openclaw_bin() -> str:
-    env_override = Path.home() / ".openclaw" / "openclaw-bin-path.txt"
-    if env_override.exists():
-        candidate = env_override.read_text(encoding="utf-8").strip()
+    override = Path.home() / ".openclaw" / "openclaw-bin-path.txt"
+    if override.exists():
+        candidate = override.read_text(encoding="utf-8").strip()
         if candidate and Path(candidate).exists():
             return candidate
-
     for candidate in (
         shutil.which("openclaw"),
         "/opt/homebrew/bin/openclaw",
@@ -60,6 +59,32 @@ def load_openclaw_config() -> Optional[Dict[str, object]]:
         return None
     try:
         return json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def load_env_flags() -> Dict[str, str]:
+    env_path = Path.home() / ".openclaw" / "env"
+    if not env_path.exists():
+        return {}
+    flags: Dict[str, str] = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :]
+        if "=" in line:
+            key, value = line.split("=", 1)
+            flags[key.strip()] = value.strip().strip('"')
+    return flags
+
+
+def load_json_file(path: Path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
 
@@ -134,29 +159,43 @@ def backup_configured() -> bool:
 
 def collect_runtime_signals(port_monitor_script: Path) -> Dict[str, object]:
     openclaw_bin = resolve_openclaw_bin()
-    openclaw_config = run_cmd(["cat", str(Path.home() / ".openclaw" / "openclaw.json")])
-    doctor = run_cmd([openclaw_bin, "doctor"])
-    gateway_status = run_cmd([openclaw_bin, "gateway", "status"])
+    openclaw_config_text = run_cmd(["cat", str(Path.home() / ".openclaw" / "openclaw.json")])
+    doctor_text = run_cmd([openclaw_bin, "doctor"])
+    gateway_status_text = run_cmd([openclaw_bin, "gateway", "status"])
     version_text = run_cmd([openclaw_bin, "--version"])
+
     port_report_raw = run_cmd(["python3", str(port_monitor_script), "--json"])
+    egress_report_raw = run_cmd(
+        ["python3", str(Path(__file__).resolve().parent / "egress_monitor.py"), "--json"]
+    )
 
     try:
         port_report = json.loads(port_report_raw)
     except Exception:
         port_report = {"status": "error", "findings": [], "listening_services": []}
 
+    try:
+        egress_report = json.loads(egress_report_raw)
+    except Exception:
+        egress_report = {"status": "error", "findings": [], "connections": []}
+
     return {
-        "openclaw_config_text": openclaw_config,
+        "openclaw_config_text": openclaw_config_text,
         "openclaw_config_json": load_openclaw_config(),
-        "doctor_text": doctor,
-        "gateway_status_text": gateway_status,
+        "doctor_text": doctor_text,
+        "gateway_status_text": gateway_status_text,
         "version_text": version_text,
         "port_report": port_report,
+        "egress_report": egress_report,
+        "env_flags": load_env_flags(),
+        "command_policy": load_json_file(Path.home() / ".openclaw" / "security" / "command-policy.json"),
+        "prompt_policy": load_json_file(Path.home() / ".openclaw" / "security" / "prompt-policy.json"),
+        "egress_allowlist": load_json_file(Path.home() / ".openclaw" / "security" / "egress_allowlist.json"),
     }
 
 
 def set_check(
-    checks_by_id: Dict[str, Dict[str, str]],
+    checks_by_id: Dict[str, Dict[str, object]],
     check_id: str,
     status: str,
     risk: str,
@@ -180,17 +219,16 @@ def set_check(
 
 def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) -> Dict[str, object]:
     checks = assessment.get("checks", [])
-    checks_by_id = {c["check_id"]: c for c in checks}
+    checks_by_id = {c["check_id"]: c for c in checks if isinstance(c, dict) and c.get("check_id")}
 
-    cfg_text = signals["openclaw_config_text"]
-    cfg_json = signals["openclaw_config_json"]
-    doctor = signals["doctor_text"]
-    gateway = signals["gateway_status_text"]
-    version_text = signals["version_text"].strip()
-    port_report = signals["port_report"]
-    findings = port_report.get("findings", [])
-    insecure = [f for f in findings if f.get("type") == "insecure-port"]
-    unapproved = [f for f in findings if f.get("type") == "unapproved-port"]
+    cfg_text = str(signals.get("openclaw_config_text") or "")
+    cfg_json = signals.get("openclaw_config_json")
+    doctor = str(signals.get("doctor_text") or "")
+    version_text = str(signals.get("version_text") or "").strip()
+    port_report = signals.get("port_report") or {}
+    findings = port_report.get("findings", []) if isinstance(port_report, dict) else []
+    insecure = [f for f in findings if isinstance(f, dict) and f.get("type") == "insecure-port"]
+    unapproved_ports = [f for f in findings if isinstance(f, dict) and f.get("type") == "unapproved-port"]
 
     approval_enforced = runtime_hook_installed()
     set_check(
@@ -222,11 +260,10 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "2026-03-07",
     )
 
-    timeout_status = "compliant"
     set_check(
         checks_by_id,
         "elevation_timeout_30m",
-        timeout_status,
+        "compliant",
         "medium",
         "30-minute timeout logic exists in root_session_guard.py.",
         "Timeout guard script is installed with preflight drop logic.",
@@ -250,35 +287,33 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "2026-03-22",
     )
 
-    ports_approved = len(unapproved) == 0
     set_check(
         checks_by_id,
         "open_ports_approved",
-        "compliant" if ports_approved else "violation",
+        "partial" if unapproved_ports else "compliant",
         "medium",
-        f"Detected {len(port_report.get('listening_services', []))} listening services with {len(unapproved)} unapproved findings.",
-        "port_monitor.py live output evaluated against approved_ports baseline.",
-        "Baseline missing or incomplete when unapproved findings exist.",
-        "Populate ~/.openclaw/security/approved_ports.json and remove unnecessary listeners.",
-        "Infrastructure",
-        "2026-02-28",
+        f"Unapproved listening ports: {len(unapproved_ports)}",
+        "port_monitor.py report evaluated vs approved baseline.",
+        "Listening ports are not fully approved.",
+        "Generate and prune approved_ports.json; close unnecessary services.",
+        "Network Security",
+        "2026-03-25",
     )
 
-    insecure_status = "compliant" if len(insecure) == 0 else "violation"
     set_check(
         checks_by_id,
         "insecure_ports_remediated",
-        insecure_status,
+        "violation" if insecure else "compliant",
         "high",
-        "No insecure legacy port findings detected." if len(insecure) == 0 else "Insecure ports detected.",
-        f"Insecure findings count from port_monitor.py: {len(insecure)}.",
-        "Legacy insecure protocol ports should be closed or migrated." if len(insecure) else "None observed in current snapshot.",
-        "Enforce baseline checks to block insecure service ports.",
+        f"Insecure ports detected: {len(insecure)}",
+        "port_monitor.py findings evaluated for insecure-port entries.",
+        "Insecure ports are still in use.",
+        "Migrate to secure alternatives or close the ports.",
         "Network Security",
         "2026-04-01",
     )
 
-    allowlist_ok = False if not isinstance(cfg_json, dict) else find_channel_allowlists(cfg_json)
+    allowlist_ok = isinstance(cfg_json, dict) and find_channel_allowlists(cfg_json)
     set_check(
         checks_by_id,
         "channel_allowlist_configured",
@@ -292,7 +327,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "2026-03-05",
     )
 
-    mention_ok = False if not isinstance(cfg_json, dict) else group_mentions_required(cfg_json)
+    mention_ok = isinstance(cfg_json, dict) and group_mentions_required(cfg_json)
     set_check(
         checks_by_id,
         "group_mentions_required",
@@ -320,9 +355,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "2026-03-07",
     )
 
-    perms_ok = permissions_hardened(OPENCLAW_DIR)
-    config_ok = permissions_hardened(Path.home() / ".openclaw" / "openclaw.json")
-    secrets_ok = perms_ok and config_ok
+    secrets_ok = permissions_hardened(OPENCLAW_DIR) and permissions_hardened(OPENCLAW_DIR / "openclaw.json")
     set_check(
         checks_by_id,
         "secrets_permissions_hardened",
@@ -351,7 +384,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
     )
 
     alt_paths = alt_privilege_paths_present()
-    alt_ok = not alt_paths or hook_ok
+    alt_ok = (not alt_paths) or hook_ok
     set_check(
         checks_by_id,
         "alternate_privilege_paths_restricted",
@@ -393,28 +426,113 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "2026-04-15",
     )
 
-    # Ensure newly added checks are persisted even if the assessment file was created
-    # from an older controls map.
-    assessment["checks"] = sorted(
-        checks_by_id.values(), key=lambda c: str(c.get("check_id", ""))
+    prompt_policy = signals.get("prompt_policy") or {}
+    prompt_ok = isinstance(prompt_policy, dict) and bool(prompt_policy.get("require_confirmation_for_untrusted"))
+    set_check(
+        checks_by_id,
+        "prompt_injection_controls",
+        "compliant" if prompt_ok else "partial",
+        "high",
+        "Untrusted content requires explicit confirmation." if prompt_ok else "Untrusted content confirmation policy not enabled.",
+        "Checked ~/.openclaw/security/prompt-policy.json.",
+        "Untrusted content sources may trigger privileged actions without explicit confirmation.",
+        "Enable prompt-policy.json require_confirmation_for_untrusted.",
+        "Security Engineering",
+        "2026-03-12",
     )
+
+    cmd_policy = signals.get("command_policy") or {}
+    deny_rules = cmd_policy.get("deny") if isinstance(cmd_policy, dict) else []
+    allow_rules = cmd_policy.get("allow") if isinstance(cmd_policy, dict) else []
+    cmd_ok = bool((isinstance(deny_rules, list) and deny_rules) or (isinstance(allow_rules, list) and allow_rules))
+    set_check(
+        checks_by_id,
+        "command_policy_enforced",
+        "compliant" if cmd_ok else "partial",
+        "high",
+        "Command policy allow/deny rules configured." if cmd_ok else "Command policy rules not configured.",
+        "Checked ~/.openclaw/security/command-policy.json.",
+        "Privileged commands are not filtered by policy.",
+        "Define deny/allow rules in command-policy.json.",
+        "Security Engineering",
+        "2026-03-12",
+    )
+
+    env_flags = signals.get("env_flags") or {}
+    session_required = isinstance(env_flags, dict) and env_flags.get("OPENCLAW_REQUIRE_SESSION_ID") == "1"
+    set_check(
+        checks_by_id,
+        "session_boundary_enforced",
+        "compliant" if session_required else "partial",
+        "medium",
+        "Task session id enforcement enabled." if session_required else "Task session id enforcement not enabled.",
+        "Checked ~/.openclaw/env for OPENCLAW_REQUIRE_SESSION_ID.",
+        "Approvals may carry across tasks without explicit session scoping.",
+        "Set OPENCLAW_REQUIRE_SESSION_ID=1 and provide OPENCLAW_TASK_SESSION_ID per task.",
+        "Security Engineering",
+        "2026-03-18",
+    )
+
+    mfa_enabled = isinstance(env_flags, dict) and bool(env_flags.get("OPENCLAW_APPROVAL_TOKEN"))
+    set_check(
+        checks_by_id,
+        "multi_factor_approval",
+        "compliant" if mfa_enabled else "partial",
+        "medium",
+        "Approval token required for privileged actions." if mfa_enabled else "Approval token not configured.",
+        "Checked ~/.openclaw/env for OPENCLAW_APPROVAL_TOKEN.",
+        "Privileged approvals rely on single-step confirmation.",
+        "Set OPENCLAW_APPROVAL_TOKEN and require entry for approvals.",
+        "Security Engineering",
+        "2026-03-20",
+    )
+
+    egress_allowlist = signals.get("egress_allowlist")
+    egress_ok = isinstance(egress_allowlist, list) and len(egress_allowlist) > 0
+    set_check(
+        checks_by_id,
+        "egress_allowlist_configured",
+        "compliant" if egress_ok else "partial",
+        "medium",
+        "Egress allowlist configured." if egress_ok else "Egress allowlist not configured.",
+        "Checked ~/.openclaw/security/egress_allowlist.json.",
+        "Outbound connections are not constrained by allowlist.",
+        "Define allowed outbound destinations.",
+        "Network Security",
+        "2026-03-22",
+    )
+
+    egress_report = signals.get("egress_report") or {}
+    egress_findings = egress_report.get("findings", []) if isinstance(egress_report, dict) else []
+    egress_clean = egress_ok and len(egress_findings) == 0
+    set_check(
+        checks_by_id,
+        "egress_connections_approved",
+        "compliant" if egress_clean else "partial",
+        "medium",
+        f"Unapproved egress findings: {len(egress_findings)}",
+        "egress_monitor.py live output evaluated against allowlist.",
+        "Unapproved outbound connections detected." if egress_ok else "Allowlist missing; cannot validate egress.",
+        "Approve or block outbound destinations.",
+        "Network Security",
+        "2026-03-25",
+    )
+
+    assessment["checks"] = sorted(checks_by_id.values(), key=lambda c: str(c.get("check_id", "")))
+    assessment.setdefault("metadata", {})
     assessment["metadata"]["generated_at_utc"] = utc_now()
     return assessment
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate live compliance assessment from current machine state")
-    parser.add_argument(
-        "--assessment-file",
-        required=True,
-        help="Path to assessment JSON to update",
-    )
-    parser.add_argument(
+    p = argparse.ArgumentParser(description="Generate live compliance assessment from current machine state")
+    p.add_argument("--assessment-file", required=True, help="Path to assessment JSON to update")
+    p.add_argument(
         "--port-monitor-script",
         default=str(Path(__file__).resolve().parent / "port_monitor.py"),
         help="Path to port monitor script",
     )
-    return parser.parse_args()
+    return p.parse_args()
 
 
 def main() -> int:
@@ -438,3 +556,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

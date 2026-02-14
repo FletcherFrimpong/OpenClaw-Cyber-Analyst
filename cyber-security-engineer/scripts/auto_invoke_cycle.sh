@@ -7,6 +7,7 @@ ASSESS_FILE="${ASSESS_DIR}/openclaw-assessment.json"
 HTML_OUT="${ASSESS_DIR}/compliance-dashboard.html"
 SUMMARY_OUT="${ASSESS_DIR}/compliance-summary.json"
 PORT_OUT="${ASSESS_DIR}/port-monitor-latest.json"
+EGRESS_OUT="${ASSESS_DIR}/egress-monitor-latest.json"
 LOG_DIR="${HOME}/.openclaw/logs"
 RUN_LOG="${LOG_DIR}/cyber-security-engineer-auto.log"
 
@@ -25,6 +26,7 @@ mkdir -p "${LOG_DIR}" "${ASSESS_DIR}"
     --output-html "${HTML_OUT}" \
     --output-summary "${SUMMARY_OUT}"
   python3 "${SKILL_DIR}/scripts/port_monitor.py" --json > "${PORT_OUT}"
+  python3 "${SKILL_DIR}/scripts/egress_monitor.py" --json > "${EGRESS_OUT}"
 
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Completed auto security cycle"
 } >> "${RUN_LOG}" 2>&1

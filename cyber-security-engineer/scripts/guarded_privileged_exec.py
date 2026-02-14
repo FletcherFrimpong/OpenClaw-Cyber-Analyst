@@ -5,11 +5,13 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-# Allow importing audit_logger when executed as a script from arbitrary cwd.
+# Allow importing sibling modules when executed from arbitrary cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audit_logger import append_audit  # noqa: E402
+from command_policy import evaluate_command  # noqa: E402
+from prompt_policy import load_policy  # noqa: E402
 
 
 def run_guard(args, *guard_args):
@@ -50,7 +52,6 @@ def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
     print("Executing argv:")
     print(json.dumps(exec_argv, indent=2))
     if use_sudo and sudo_kill_cache:
-        # Best-effort: ensure sudo timestamp for this user is not reused implicitly.
         subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
 
     append_audit({"action": "exec_start", "argv": argv, "use_sudo": use_sudo})
@@ -111,6 +112,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _get_task_session_id() -> Optional[str]:
+    session_id = os.environ.get("OPENCLAW_TASK_SESSION_ID") or None
+    require_session = os.environ.get("OPENCLAW_REQUIRE_SESSION_ID") == "1"
+    if require_session and not session_id:
+        return "__MISSING__"
+    return session_id
+
+
 def main() -> int:
     args = parse_args()
     if not args.command:
@@ -124,13 +133,44 @@ def main() -> int:
         print("No command supplied after -- delimiter.", file=sys.stderr)
         return 2
 
+    policy_result = evaluate_command(argv)
+    if not policy_result.get("allowed", False):
+        append_audit(
+            {
+                "action": "policy_block",
+                "argv": argv,
+                "reason": policy_result.get("reason"),
+                "pattern": policy_result.get("pattern"),
+            }
+        )
+        print("Command blocked by policy.", file=sys.stderr)
+        return 3
+
+    session_id = _get_task_session_id()
+    if session_id == "__MISSING__":
+        append_audit({"action": "session_id_missing", "argv": argv})
+        print("Task session id is required but not provided.", file=sys.stderr)
+        return 6
+
     argv_json = json.dumps(argv)
-    authz = run_guard(args, "authorize", "--argv-json", argv_json)
+    if session_id:
+        authz = run_guard(args, "authorize", "--argv-json", argv_json, "--session-id", session_id)
+    else:
+        authz = run_guard(args, "authorize", "--argv-json", argv_json)
     if authz.returncode not in (0, 2):
         sys.stderr.write(authz.stderr or authz.stdout)
         return authz.returncode
 
     needs_approval = authz.returncode == 2
+
+    prompt_policy = load_policy()
+    if prompt_policy.get("require_confirmation_for_untrusted") and os.environ.get("OPENCLAW_UNTRUSTED_SOURCE") == "1":
+        confirm = input("Untrusted content source detected. Proceed? [y/N]: ").strip().lower()
+        if confirm not in {"y", "yes"}:
+            append_audit({"action": "untrusted_source_block", "argv": argv})
+            return 5
+        append_audit({"action": "untrusted_source_confirmed", "argv": argv})
+
     if needs_approval and not ask_for_approval(args.reason, argv):
         print("User denied elevated access. Running in normal mode is required.")
         run_guard(args, "normal-used")
@@ -138,20 +178,36 @@ def main() -> int:
         return 1
 
     if needs_approval:
-        approve = run_guard(args, "approve", "--reason", args.reason, "--argv-json", argv_json)
+        token_required = os.environ.get("OPENCLAW_APPROVAL_TOKEN")
+        if token_required:
+            token = input("Enter approval token: ").strip()
+            if token != token_required:
+                append_audit({"action": "approval_token_failed", "argv": argv})
+                print("Invalid approval token.", file=sys.stderr)
+                return 4
+            append_audit({"action": "approval_token_ok", "argv": argv})
+
+        approve_args = ["approve", "--reason", args.reason, "--argv-json", argv_json]
+        if session_id:
+            approve_args += ["--session-id", session_id]
+        approve = run_guard(args, *approve_args)
         if approve.returncode != 0:
             sys.stderr.write(approve.stderr or approve.stdout)
             return approve.returncode
-        append_audit({"action": "approval_granted", "reason": args.reason, "argv": argv})
+        append_audit(
+            {
+                "action": "approval_granted",
+                "reason": args.reason,
+                "argv": argv,
+                "session_id": session_id,
+            }
+        )
 
     try:
-        # Mark elevated activity if we're about to use sudo.
         if args.use_sudo:
             run_guard(args, "elevated-used")
         return run_command(argv, args.use_sudo, args.sudo_kill_cache)
     finally:
-        # Default: always drop elevation to enforce post-task least privilege.
-        # If --keep-session is set, elevated session remains active, but only allowlisted argv are authorized.
         if not args.keep_session:
             run_guard(args, "drop")
             append_audit({"action": "drop_elevation", "argv": argv, "reason": "post-command"})
