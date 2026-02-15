@@ -73,6 +73,13 @@ Template:
 
 `cyber-security-engineer/references/egress-allowlist.template.json`
 
+### Notifications On New Findings (Optional)
+
+The auto-invoke cycle can notify on newly detected violations/partials via:
+
+- `OPENCLAW_VIOLATION_NOTIFY_CMD`: command to run (reads the message from stdin)
+- `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST`: comma-separated allowlist of permitted notifier executables; if unset/empty, the notifier command is refused
+
 ## Install (New Users)
 
 From repo root:

@@ -14,6 +14,7 @@ description: Security engineering workflow for OpenClaw privilege governance and
 - `OPENCLAW_APPROVAL_TOKEN`
 - `OPENCLAW_UNTRUSTED_SOURCE`
 - `OPENCLAW_VIOLATION_NOTIFY_CMD`
+- `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST`
 
 **Tools:** `python3` and one of `lsof`, `ss`, or `netstat` for port/egress checks.
 
