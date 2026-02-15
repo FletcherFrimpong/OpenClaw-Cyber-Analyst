@@ -73,89 +73,6 @@ Template:
 
 `cyber-security-engineer/references/egress-allowlist.template.json`
 
-### Notifications On New Violations (Optional)
-
-The auto-invoke cycle runs `notify_on_violation.py`, which compares the latest compliance summary against the previous run and emits a message when new violations/partials appear.
-
-To wire notifications to your own channel, set a command to run with the message piped on stdin:
-
-```bash
-export OPENCLAW_VIOLATION_NOTIFY_CMD="your_notify_command_here"
-```
-
-Example (log to system logger):
-
-```bash
-export OPENCLAW_VIOLATION_NOTIFY_CMD="logger -t openclaw-cyber-security-engineer"
-```
-
-## Compliance Dashboard (ISO 27001 + NIST)
-
-The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories.
-
-## Preflight & Safety Checks
-
-Requirements:
-
-- Env vars (optional): `OPENCLAW_REQUIRE_POLICY_FILES`, `OPENCLAW_REQUIRE_SESSION_ID`, `OPENCLAW_TASK_SESSION_ID`, `OPENCLAW_APPROVAL_TOKEN`, `OPENCLAW_UNTRUSTED_SOURCE`, `OPENCLAW_VIOLATION_NOTIFY_CMD`
-- Tools: `python3` and one of `lsof` / `ss` / `netstat`
-- Policy files under `~/.openclaw/security`: `approved_ports.json`, `command-policy.json`, `egress_allowlist.json` (and optionally `prompt-policy.json`)
-
-Before enabling hooks or auto-invoke, run:
-
-```bash
-python3 cyber-security-engineer/scripts/preflight_check.py
-```
-
-You can enforce policy file presence for privileged execution by setting:
-
-```bash
-export OPENCLAW_REQUIRE_POLICY_FILES=1
-```
-
-Safety notes:
-
-- Do not run install scripts as root unless you reviewed them. Set `ALLOW_ROOT=1` to override.
-- Notifications are opt-in; `notify_on_violation.py` only runs a command if you set `OPENCLAW_VIOLATION_NOTIFY_CMD`.
-- Policy files must be reviewed by an administrator before enabling privileged execution.
-
-## Advanced Guardrails (Optional)
-
-### Command Policy (Allow/Deny)
-
-Create `~/.openclaw/security/command-policy.json` using:
-
-`cyber-security-engineer/references/command-policy.template.json`
-
-If `allow` is non-empty, only matching commands are permitted. Any `deny` match blocks execution.
-
-### Prompt-Injection Confirmation
-
-Create `~/.openclaw/security/prompt-policy.json` using:
-
-`cyber-security-engineer/references/prompt-policy.template.json`
-
-When `OPENCLAW_UNTRUSTED_SOURCE=1` is set, privileged actions require explicit confirmation.
-
-### Task Session Boundary Enforcement
-
-To scope approvals to a task:
-
-```bash
-export OPENCLAW_REQUIRE_SESSION_ID=1
-export OPENCLAW_TASK_SESSION_ID="<task-id>"
-```
-
-### Multi-Factor Approval (Token)
-
-Set an approval token in `~/.openclaw/env`:
-
-```bash
-export OPENCLAW_APPROVAL_TOKEN="<token>"
-```
-
-Privileged approvals will require the token entry.
-
 ## Install (New Users)
 
 From repo root:
@@ -195,4 +112,3 @@ python3 -m http.server 8088
 Open:
 
 - `http://127.0.0.1:8088/compliance-dashboard.html`
-

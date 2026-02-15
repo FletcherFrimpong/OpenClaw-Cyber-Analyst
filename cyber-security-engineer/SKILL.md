@@ -5,6 +5,24 @@ description: Security engineering workflow for OpenClaw privilege governance and
 
 # Cyber Security Engineer
 
+## Requirements
+
+**Env vars (optional, but documented):**
+- `OPENCLAW_REQUIRE_POLICY_FILES`
+- `OPENCLAW_REQUIRE_SESSION_ID`
+- `OPENCLAW_TASK_SESSION_ID`
+- `OPENCLAW_APPROVAL_TOKEN`
+- `OPENCLAW_UNTRUSTED_SOURCE`
+- `OPENCLAW_VIOLATION_NOTIFY_CMD`
+
+**Tools:** `python3` and one of `lsof`, `ss`, or `netstat` for port/egress checks.
+
+**Policy files (admin reviewed):**
+- `~/.openclaw/security/approved_ports.json`
+- `~/.openclaw/security/command-policy.json`
+- `~/.openclaw/security/egress_allowlist.json`
+- `~/.openclaw/security/prompt-policy.json`
+
 Implement these controls in every security-sensitive task:
 
 1. Keep default execution in normal (non-root) mode.
@@ -14,7 +32,7 @@ Implement these controls in every security-sensitive task:
 5. Expire elevated state after 30 idle minutes and require re-approval.
 6. Monitor listening network ports and flag insecure or unapproved exposure.
 7. Monitor outbound connections and flag destinations not in the egress allowlist.
-8. If no approved baseline exists, generate one and require user review/pruning.
+8. If no approved baseline exists, generate one with `python3 scripts/generate_approved_ports.py`, then review and prune.
 9. Benchmark controls against ISO 27001 and NIST and report violations with mitigations.
 
 ## Non-Goals (Web Browsing)
@@ -63,4 +81,3 @@ When reporting status, include:
 - The specific `check_id`(s) affected, `status`, `risk`, and concise evidence.
 - Concrete mitigations (what to change, where) and any owners/due dates if present.
 - For network findings: port, bind address, process/service, and why it is flagged (unapproved/insecure/public).
-
