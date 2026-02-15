@@ -1,6 +1,6 @@
 ---
 name: cyber-security-engineer
-description: Security engineering workflow for OpenClaw privilege governance and hardening. Use for least-privilege execution, approval-first privileged actions, idle timeout controls, listening-port and egress monitoring, and ISO 27001/NIST-aligned compliance reporting with mitigations.
+description: Security engineering workflow for OpenClaw privilege governance and hardening. Use for least-privilege execution, approval-first privileged actions, idle timeout controls, port + egress monitoring, and ISO 27001/NIST-aligned compliance reporting with mitigations.
 ---
 
 # Cyber Security Engineer
@@ -30,6 +30,7 @@ Implement these controls in every security-sensitive task:
 - `references/command-policy.template.json`
 - `references/prompt-policy.template.json`
 - `references/egress-allowlist.template.json`
+- `scripts/preflight_check.py`
 - `scripts/root_session_guard.py`
 - `scripts/audit_logger.py`
 - `scripts/command_policy.py`
@@ -39,6 +40,7 @@ Implement these controls in every security-sensitive task:
 - `scripts/port_monitor.py`
 - `scripts/generate_approved_ports.py`
 - `scripts/egress_monitor.py`
+- `scripts/notify_on_violation.py`
 - `scripts/compliance_dashboard.py`
 - `scripts/live_assessment.py`
 
@@ -49,6 +51,17 @@ Implement these controls in every security-sensitive task:
 - Enforce command allow/deny policy when configured (`~/.openclaw/security/command-policy.json`).
 - If `OPENCLAW_UNTRUSTED_SOURCE=1` and prompt policy requires it, require explicit confirmation before privileged work.
 - If `OPENCLAW_REQUIRE_SESSION_ID=1`, require `OPENCLAW_TASK_SESSION_ID` and scope approvals to that id.
+- If timeout is exceeded, force session expiration and approval renewal.
+- Flag listening ports not present in the approved baseline and recommend secure alternatives for insecure ports.
+- Flag outbound destinations not present in the egress allowlist.
 - If `OPENCLAW_APPROVAL_TOKEN` is configured, require it for privileged approvals.
 - Log privileged actions to `~/.openclaw/security/privileged-audit.jsonl` (best-effort).
+
+## Output Contract
+
+When reporting status, include:
+
+- The specific `check_id`(s) affected, `status`, `risk`, and concise evidence.
+- Concrete mitigations (what to change, where) and any owners/due dates if present.
+- For network findings: port, bind address, process/service, and why it is flagged (unapproved/insecure/public).
 

@@ -159,5 +159,4 @@
     "default_risk": "medium",
     "expected_state": "No unapproved outbound connections are detected."
   }
-  }
 ]

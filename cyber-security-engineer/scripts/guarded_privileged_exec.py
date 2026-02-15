@@ -35,14 +35,7 @@ def ask_for_approval(reason: str, command_argv: List[str]) -> bool:
     print(json.dumps(command_argv, indent=2))
     answer = input("Approve elevated access for this command? [y/N]: ").strip().lower()
     approved = answer in {"y", "yes"}
-    append_audit(
-        {
-            "action": "approval_decision",
-            "reason": reason,
-            "argv": command_argv,
-            "approved": approved,
-        }
-    )
+    append_audit({"action": "approval_decision", "reason": reason, "argv": command_argv, "approved": approved})
     return approved
 
 
@@ -52,18 +45,11 @@ def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
     print("Executing argv:")
     print(json.dumps(exec_argv, indent=2))
     if use_sudo and sudo_kill_cache:
+        # Best-effort: ensure sudo timestamp for this user is not reused implicitly.
         subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
-
     append_audit({"action": "exec_start", "argv": argv, "use_sudo": use_sudo})
     result = subprocess.run(exec_argv)
-    append_audit(
-        {
-            "action": "exec_finish",
-            "argv": argv,
-            "use_sudo": use_sudo,
-            "returncode": result.returncode,
-        }
-    )
+    append_audit({"action": "exec_finish", "argv": argv, "use_sudo": use_sudo, "returncode": result.returncode})
     return result.returncode
 
 
@@ -133,6 +119,18 @@ def main() -> int:
         print("No command supplied after -- delimiter.", file=sys.stderr)
         return 2
 
+    if os.environ.get("OPENCLAW_REQUIRE_POLICY_FILES") == "1":
+        required = [
+            Path.home() / ".openclaw" / "security" / "command-policy.json",
+            Path.home() / ".openclaw" / "security" / "approved_ports.json",
+            Path.home() / ".openclaw" / "security" / "egress_allowlist.json",
+        ]
+        missing = [str(p) for p in required if not p.exists()]
+        if missing:
+            append_audit({"action": "policy_files_missing", "missing": missing})
+            print("Missing required policy files. Refusing privileged execution.", file=sys.stderr)
+            return 7
+
     policy_result = evaluate_command(argv)
     if not policy_result.get("allowed", False):
         append_audit(
@@ -180,6 +178,9 @@ def main() -> int:
     if needs_approval:
         token_required = os.environ.get("OPENCLAW_APPROVAL_TOKEN")
         if token_required:
+            env_path = Path.home() / ".openclaw" / "env"
+            if env_path.exists() and (env_path.stat().st_mode & 0o077):
+                print("Warning: ~/.openclaw/env permissions are too open; tighten to 600.")
             token = input("Enter approval token: ").strip()
             if token != token_required:
                 append_audit({"action": "approval_token_failed", "argv": argv})
@@ -194,14 +195,7 @@ def main() -> int:
         if approve.returncode != 0:
             sys.stderr.write(approve.stderr or approve.stdout)
             return approve.returncode
-        append_audit(
-            {
-                "action": "approval_granted",
-                "reason": args.reason,
-                "argv": argv,
-                "session_id": session_id,
-            }
-        )
+        append_audit({"action": "approval_granted", "reason": args.reason, "argv": argv, "session_id": session_id})
 
     try:
         if args.use_sudo:

@@ -80,7 +80,7 @@ def load_env_flags() -> Dict[str, str]:
     return flags
 
 
-def load_json_file(path: Path):
+def load_json_file(path: Path) -> Optional[object]:
     if not path.exists():
         return None
     try:
@@ -487,7 +487,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "2026-03-20",
     )
 
-    egress_allowlist = signals.get("egress_allowlist")
+    egress_allowlist = signals.get("egress_allowlist") or []
     egress_ok = isinstance(egress_allowlist, list) and len(egress_allowlist) > 0
     set_check(
         checks_by_id,
@@ -556,4 +556,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

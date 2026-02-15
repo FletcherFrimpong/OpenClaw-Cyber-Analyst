@@ -2,7 +2,7 @@
 
 Security automation skillset for OpenClaw.
 
-This repo ships the `cyber-security-engineer` skill: least-privilege guardrails, port and egress monitoring, and ISO 27001 + NIST benchmarking with a local dashboard.
+This repo ships the `cyber-security-engineer` skill: least-privilege guardrails, approval-first elevation, port + egress monitoring, and ISO 27001 + NIST benchmarking with a local dashboard.
 
 ## Core Capabilities
 
@@ -20,7 +20,8 @@ python3 cyber-security-engineer/scripts/guarded_privileged_exec.py \
 This enforces:
 
 - Approval-first privileged execution
-- Per-task scoping (optional): approvals can be scoped to a task session id
+- Command allow/deny policy enforcement (when configured)
+- Per-task session scoping (optional)
 - Automatic drop back to normal after the command (default; `--keep-session` is available)
 - Append-only privileged audit log: `~/.openclaw/security/privileged-audit.jsonl`
 
@@ -65,6 +66,8 @@ Template:
 
 `cyber-security-engineer/references/approved_ports.template.json`
 
+Port discovery uses `lsof` when available, with fallbacks to `ss` (Linux) or `netstat` (Windows).
+
 ### Egress Monitoring (Outbound Allowlist)
 
 Egress monitoring inventories outbound TCP connections and compares them to:
@@ -80,6 +83,55 @@ python3 cyber-security-engineer/scripts/egress_monitor.py --json
 Template:
 
 `cyber-security-engineer/references/egress-allowlist.template.json`
+
+### Notifications On New Violations (Optional)
+
+The auto-invoke cycle runs `notify_on_violation.py`, which compares the latest compliance summary against the previous run and emits a message when new violations/partials appear.
+
+To wire notifications to your own channel, set a command to run with the message piped on stdin:
+
+```bash
+export OPENCLAW_VIOLATION_NOTIFY_CMD="your_notify_command_here"
+```
+
+Example (log to system logger):
+
+```bash
+export OPENCLAW_VIOLATION_NOTIFY_CMD="logger -t openclaw-cyber-security-engineer"
+```
+
+## Compliance Dashboard (ISO 27001 + NIST)
+
+The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories, including checks for:
+
+- Channel allowlists + group mention requirements
+- Gateway loopback + token auth validation
+- Secrets/config permission hardening
+- Privileged audit logging presence
+- Backup/recovery presence
+- Update hygiene (captures `openclaw --version`)
+- Prompt-injection controls, command policy, session boundaries, MFA approvals
+- Egress allowlist + unapproved outbound connections
+
+## Preflight & Safety Checks
+
+Before enabling hooks or auto-invoke, run:
+
+```bash
+python3 cyber-security-engineer/scripts/preflight_check.py
+```
+
+You can enforce policy file presence for privileged execution by setting:
+
+```bash
+export OPENCLAW_REQUIRE_POLICY_FILES=1
+```
+
+Safety notes:
+
+- Do not run install scripts as root unless you reviewed them. Set `ALLOW_ROOT=1` to override.
+- Notifications are opt-in; `notify_on_violation.py` only runs a command if you set `OPENCLAW_VIOLATION_NOTIFY_CMD`.
+- Policy files must be reviewed by an administrator before enabling privileged execution.
 
 ## Advanced Guardrails (Optional)
 
@@ -117,35 +169,6 @@ export OPENCLAW_APPROVAL_TOKEN="<token>"
 ```
 
 Privileged approvals will require the token entry.
-
-## Notifications On New Violations (Optional)
-
-If you want to be alerted when *new* violations/partials appear between security cycles, set:
-
-```bash
-export OPENCLAW_VIOLATION_NOTIFY_CMD="<command>"
-```
-
-OpenClaw will execute this command and pipe a notification message to its stdin.
-
-Example (log to system logger):
-
-```bash
-export OPENCLAW_VIOLATION_NOTIFY_CMD="logger -t openclaw-cyber-security-engineer"
-```
-
-## Compliance Dashboard (ISO 27001 + NIST)
-
-The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories, including checks for:
-
-- Channel allowlists + group mention requirements
-- Gateway loopback + token auth validation
-- Secrets/config permission hardening
-- Privileged audit logging presence
-- Backup/recovery presence
-- Update hygiene (captures `openclaw --version`)
-- Prompt-injection controls, command policy, session boundaries, MFA approvals
-- Egress allowlist + unapproved outbound connections
 
 ## Install (New Users)
 
@@ -186,3 +209,4 @@ python3 -m http.server 8088
 Open:
 
 - `http://127.0.0.1:8088/compliance-dashboard.html`
+
