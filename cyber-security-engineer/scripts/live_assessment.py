@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""Collect runtime signals and update the compliance assessment JSON.
+
+Review before use. No external network calls are made by this script.
+"""
 import argparse
 import json
 import os

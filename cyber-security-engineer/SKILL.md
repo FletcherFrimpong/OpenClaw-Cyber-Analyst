@@ -44,18 +44,17 @@ Implement these controls in every security-sensitive task:
 - `scripts/compliance_dashboard.py`
 - `scripts/live_assessment.py`
 
-## Required Behaviors
+## Behavior
 
 - Never keep root/elevated access open between unrelated tasks.
 - Never execute root commands without an explicit approval step in the current flow.
-- Enforce command allow/deny policy when configured (`~/.openclaw/security/command-policy.json`).
-- If `OPENCLAW_UNTRUSTED_SOURCE=1` and prompt policy requires it, require explicit confirmation before privileged work.
-- If `OPENCLAW_REQUIRE_SESSION_ID=1`, require `OPENCLAW_TASK_SESSION_ID` and scope approvals to that id.
+- Enforce command allow/deny policy when configured.
+- Require confirmation when untrusted content sources are detected (`OPENCLAW_UNTRUSTED_SOURCE=1` + prompt policy).
+- Enforce task session id scoping when configured (`OPENCLAW_REQUIRE_SESSION_ID=1`).
 - If timeout is exceeded, force session expiration and approval renewal.
+- Log privileged actions to `~/.openclaw/security/privileged-audit.jsonl` (best-effort).
 - Flag listening ports not present in the approved baseline and recommend secure alternatives for insecure ports.
 - Flag outbound destinations not present in the egress allowlist.
-- If `OPENCLAW_APPROVAL_TOKEN` is configured, require it for privileged approvals.
-- Log privileged actions to `~/.openclaw/security/privileged-audit.jsonl` (best-effort).
 
 ## Output Contract
 

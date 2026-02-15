@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""Root session guard with idle-timeout and allowlisted argv scoping.
+Review before use. No network calls are made from this script.
+"""
 import argparse
 import json
 import os

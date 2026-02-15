@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""Guarded privileged execution with approval, policy checks, and audit logging.
+Review before enabling. No network calls are made from this script.
+"""
 import argparse
 import json
 import os
@@ -160,7 +163,6 @@ def main() -> int:
         return authz.returncode
 
     needs_approval = authz.returncode == 2
-
     prompt_policy = load_policy()
     if prompt_policy.get("require_confirmation_for_untrusted") and os.environ.get("OPENCLAW_UNTRUSTED_SOURCE") == "1":
         confirm = input("Untrusted content source detected. Proceed? [y/N]: ").strip().lower()
@@ -212,4 +214,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

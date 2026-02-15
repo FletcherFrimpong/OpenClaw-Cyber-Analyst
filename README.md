@@ -25,6 +25,19 @@ This enforces:
 - Automatic drop back to normal after the command (default; `--keep-session` is available)
 - Append-only privileged audit log: `~/.openclaw/security/privileged-audit.jsonl`
 
+### Approved Ports Baseline
+
+Port monitoring compares listeners to an approved baseline. Generate one from current services:
+
+```bash
+python3 cyber-security-engineer/scripts/generate_approved_ports.py
+```
+
+This writes `~/.openclaw/security/approved_ports.json`. Review and prune it for approved services.
+A starter template is available at `cyber-security-engineer/references/approved_ports.template.json`.
+
+Port discovery uses `lsof` when available, with fallbacks to `ss` (Linux) or `netstat` (Windows).
+
 ### Runtime Enforcement Hook (Optional)
 
 To reduce bypasses (running raw `sudo`), install the runtime hook which places a `sudo` shim at:
@@ -43,30 +56,6 @@ Skip hook during bootstrap:
 ```bash
 ENFORCE_PRIVILEGED_EXEC=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
 ```
-
-### Listening Port Monitoring + Approved Baseline
-
-Port monitoring inventories listening TCP ports and flags:
-
-- Unapproved listeners (not in baseline)
-- Insecure ports (with safer recommendations)
-- Public binds (`0.0.0.0`, `::`, `*`)
-
-Approved baseline file:
-
-`~/.openclaw/security/approved_ports.json`
-
-Generate a baseline from current listeners:
-
-```bash
-python3 cyber-security-engineer/scripts/generate_approved_ports.py
-```
-
-Template:
-
-`cyber-security-engineer/references/approved_ports.template.json`
-
-Port discovery uses `lsof` when available, with fallbacks to `ss` (Linux) or `netstat` (Windows).
 
 ### Egress Monitoring (Outbound Allowlist)
 
@@ -102,18 +91,15 @@ export OPENCLAW_VIOLATION_NOTIFY_CMD="logger -t openclaw-cyber-security-engineer
 
 ## Compliance Dashboard (ISO 27001 + NIST)
 
-The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories, including checks for:
-
-- Channel allowlists + group mention requirements
-- Gateway loopback + token auth validation
-- Secrets/config permission hardening
-- Privileged audit logging presence
-- Backup/recovery presence
-- Update hygiene (captures `openclaw --version`)
-- Prompt-injection controls, command policy, session boundaries, MFA approvals
-- Egress allowlist + unapproved outbound connections
+The skill maps observed OpenClaw/host posture to ISO 27001 and NIST categories.
 
 ## Preflight & Safety Checks
+
+Requirements:
+
+- Env vars (optional): `OPENCLAW_REQUIRE_POLICY_FILES`, `OPENCLAW_REQUIRE_SESSION_ID`, `OPENCLAW_TASK_SESSION_ID`, `OPENCLAW_APPROVAL_TOKEN`, `OPENCLAW_UNTRUSTED_SOURCE`, `OPENCLAW_VIOLATION_NOTIFY_CMD`
+- Tools: `python3` and one of `lsof` / `ss` / `netstat`
+- Policy files under `~/.openclaw/security`: `approved_ports.json`, `command-policy.json`, `egress_allowlist.json` (and optionally `prompt-policy.json`)
 
 Before enabling hooks or auto-invoke, run:
 
