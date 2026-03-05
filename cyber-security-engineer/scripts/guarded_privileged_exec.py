@@ -16,6 +16,12 @@ from audit_logger import append_audit  # noqa: E402
 from command_policy import evaluate_command  # noqa: E402
 from prompt_policy import load_policy  # noqa: E402
 
+SAFE_ENV_VARS = {
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "LANG": os.environ.get("LANG", "C.UTF-8"),
+    "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+}
+
 
 def run_guard(args, *guard_args):
     cmd = [
@@ -42,8 +48,56 @@ def ask_for_approval(reason: str, command_argv: List[str]) -> bool:
     return approved
 
 
+def _validate_binary(path: str) -> Optional[str]:
+    """Validate a binary path. Returns error string if invalid, else None."""
+    if not path:
+        return "missing binary"
+    if not os.path.isabs(path):
+        return "binary path must be absolute"
+    real = os.path.realpath(path)
+    if not os.path.exists(real):
+        return "binary path does not exist"
+    try:
+        st = os.stat(real)
+    except Exception:
+        return "cannot stat binary"
+    # must be root owned and not group/other writable
+    if st.st_uid != 0:
+        return "binary is not root-owned"
+    if (st.st_mode & 0o022) != 0:
+        return "binary is group/other writable"
+    return None
+
+
+def _validate_command_argv(argv: List[str]) -> Optional[str]:
+    if not argv:
+        return "empty argv"
+    if argv[0].startswith("-"):
+        return "command must not start with an option"
+    if not os.path.isabs(argv[0]):
+        return "command path must be absolute"
+    real = os.path.realpath(argv[0])
+    if not os.path.exists(real):
+        return "command path does not exist"
+    try:
+        st = os.stat(real)
+    except Exception:
+        return "cannot stat command"
+    if st.st_uid != 0:
+        return "command binary is not root-owned"
+    if (st.st_mode & 0o022) != 0:
+        return "command binary is group/other writable"
+    return None
+
+
 def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
-    sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "sudo")
+    sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "/usr/bin/sudo")
+    if use_sudo:
+        err = _validate_binary(sudo_bin)
+        if err:
+            append_audit({"action": "sudo_binary_invalid", "binary": sudo_bin, "error": err})
+            print(f"Invalid sudo binary: {err}", file=sys.stderr)
+            return 9
     exec_argv = [sudo_bin, "--"] + argv if use_sudo else argv
     print("Executing argv:")
     print(json.dumps(exec_argv, indent=2))
@@ -51,7 +105,7 @@ def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
         # Best-effort: ensure sudo timestamp for this user is not reused implicitly.
         subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
     append_audit({"action": "exec_start", "argv": argv, "use_sudo": use_sudo})
-    result = subprocess.run(exec_argv)
+    result = subprocess.run(exec_argv, env=SAFE_ENV_VARS)
     append_audit({"action": "exec_finish", "argv": argv, "use_sudo": use_sudo, "returncode": result.returncode})
     return result.returncode
 
@@ -96,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "command",
         nargs=argparse.REMAINDER,
-        help='Command to run, e.g. -- "systemctl restart nginx"',
+        help='Command to run, e.g. -- "/usr/bin/systemctl restart nginx"',
     )
     return parser.parse_args()
 
@@ -133,6 +187,13 @@ def main() -> int:
             append_audit({"action": "policy_files_missing", "missing": missing})
             print("Missing required policy files. Refusing privileged execution.", file=sys.stderr)
             return 7
+
+    # Validate command path + ownership
+    err = _validate_command_argv(argv)
+    if err:
+        append_audit({"action": "command_invalid", "argv": argv, "error": err})
+        print(f"Invalid command: {err}", file=sys.stderr)
+        return 8
 
     policy_result = evaluate_command(argv)
     if not policy_result.get("allowed", False):
@@ -208,7 +269,7 @@ def main() -> int:
             run_guard(args, "drop")
             append_audit({"action": "drop_elevation", "argv": argv, "reason": "post-command"})
         if args.use_sudo and args.sudo_kill_cache:
-            sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "sudo")
+            sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "/usr/bin/sudo")
             subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
 
 

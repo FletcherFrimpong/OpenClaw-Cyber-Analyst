@@ -41,6 +41,9 @@ SHELL_LAUNCHERS = {
     "perl",
     "ruby",
     "node",
+    "env",
+    "sudo",
+    "pkexec",
 }
 
 
@@ -135,12 +138,45 @@ def _parse_notify_command(raw: str) -> List[str]:
 
 
 def _is_allowed_notify_command(argv: List[str]) -> bool:
-    allowlist_raw = os.environ.get("OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST", "")
+    """Allowlist supports exact argv lists in JSON.
+
+    OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST can be:
+    - JSON array of argv arrays: [["/usr/bin/logger","-t","openclaw"], ...]
+    - Comma-separated list of absolute binaries (legacy)
+    """
+    allowlist_raw = os.environ.get("OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST", "").strip()
+    if not allowlist_raw:
+        return False
+
+    # JSON allowlist of argv arrays
+    if allowlist_raw.startswith("["):
+        try:
+            parsed = json.loads(allowlist_raw)
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, list) and all(isinstance(s, str) for s in item):
+                        if item == argv:
+                            return True
+            return False
+        except Exception:
+            return False
+
+    # Legacy: comma-separated binaries
     allowlist = {item.strip() for item in allowlist_raw.split(",") if item.strip()}
-    if allowlist:
-        return argv[0] in allowlist
-    # Default deny: require explicit allowlist to prevent shell injection / unsafe execution.
-    return False
+    return argv and argv[0] in allowlist
+
+
+def _validate_notify_argv(argv: List[str]) -> Optional[str]:
+    if not argv:
+        return "empty argv"
+    if not os.path.isabs(argv[0]):
+        return "notify command must use absolute path"
+    if os.path.basename(argv[0]) in SHELL_LAUNCHERS:
+        return "notify command is a shell/interpreter launcher"
+    real = os.path.realpath(argv[0])
+    if not os.path.exists(real):
+        return "notify command does not exist"
+    return None
 
 
 def _send_notification(message: str) -> int:
@@ -155,13 +191,14 @@ def _send_notification(message: str) -> int:
         if not argv:
             sys.stderr.write("notify_on_violation: notifier configured but could not parse OPENCLAW_VIOLATION_NOTIFY_CMD safely\n")
             return 0
-        if argv[0] in SHELL_LAUNCHERS:
-            sys.stderr.write("notify_on_violation: refused notifier command (shell/interpreter launcher)\n")
+        err = _validate_notify_argv(argv)
+        if err:
+            sys.stderr.write(f"notify_on_violation: refused notifier command ({err})\n")
             return 0
         if not _is_allowed_notify_command(argv):
             sys.stderr.write("notify_on_violation: refused notifier command (not in OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST)\n")
             return 0
-        p = subprocess.run(argv, check=False, input=message, text=True)
+        p = subprocess.run(argv, check=False, input=message, text=True, timeout=5)
         return int(p.returncode or 0)
     except Exception:
         return 0

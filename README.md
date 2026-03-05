@@ -1,121 +1,140 @@
-# OpenClaw-Cyber-Analyst
+# OpenClaw Cyber Analyst
 
-Security automation skillset for OpenClaw.
+This project adds a security layer to OpenClaw.
 
-This repo ships the `cyber-security-engineer` skill: least-privilege guardrails, approval-first elevation, port + egress monitoring, and ISO 27001 + NIST benchmarking with a local dashboard.
+In plain terms, it helps you:
 
-## Core Capabilities
+- Ask for approval before risky system-level actions
+- Track open ports and outbound network connections
+- Generate a simple security report you can review in a browser
 
-### Least Privilege, Scoped Approvals, Audit Trail
+## Who This Is For
 
-Privileged actions should be executed through:
+- Non-technical users who want safer defaults
+- Technical users who want stronger control and auditability
 
-```bash
-python3 cyber-security-engineer/scripts/guarded_privileged_exec.py \
-  --reason "why root is needed" \
-  --use-sudo \
-  -- <command> <args...>
-```
+## 5-Minute Start (Non-Technical)
 
-This enforces:
-
-- Approval-first privileged execution
-- Command allow/deny policy enforcement (when configured)
-- Per-task session scoping (optional)
-- Automatic drop back to normal after the command (default; `--keep-session` is available)
-- Append-only privileged audit log: `~/.openclaw/security/privileged-audit.jsonl`
-
-### Approved Ports Baseline
-
-Port monitoring compares listeners to an approved baseline. Generate one from current services:
-
-```bash
-python3 cyber-security-engineer/scripts/generate_approved_ports.py
-```
-
-This writes `~/.openclaw/security/approved_ports.json`. Review and prune it for approved services.
-A starter template is available at `cyber-security-engineer/references/approved_ports.template.json`.
-
-Port discovery uses `lsof` when available, with fallbacks to `ss` (Linux) or `netstat` (Windows).
-
-### Runtime Enforcement Hook (Optional)
-
-To reduce bypasses (running raw `sudo`), install the runtime hook which places a `sudo` shim at:
-
-`~/.openclaw/bin/sudo`
-
-Install:
-
-```bash
-./cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh
-openclaw gateway restart
-```
-
-Skip hook during bootstrap:
-
-```bash
-ENFORCE_PRIVILEGED_EXEC=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
-```
-
-### Egress Monitoring (Outbound Allowlist)
-
-Egress monitoring inventories outbound TCP connections and compares them to:
-
-`~/.openclaw/security/egress_allowlist.json`
-
-Run:
-
-```bash
-python3 cyber-security-engineer/scripts/egress_monitor.py --json
-```
-
-Template:
-
-`cyber-security-engineer/references/egress-allowlist.template.json`
-
-### Notifications On New Findings (Optional)
-
-The auto-invoke cycle can notify on newly detected violations/partials via:
-
-- `OPENCLAW_VIOLATION_NOTIFY_CMD`: command to run (reads the message from stdin)
-- `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST`: comma-separated allowlist of permitted notifier executables; if unset/empty, the notifier command is refused
-
-## Install (New Users)
-
-From repo root:
+Run these commands from the project folder:
 
 ```bash
 chmod +x scripts/bootstrap-openclaw-cyber-analyst.sh
 ./scripts/bootstrap-openclaw-cyber-analyst.sh
-```
-
-Skip scheduler:
-
-```bash
-AUTO_INVOKE=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
-```
-
-## Run Manually
-
-```bash
 ./scripts/auto-invoke-security-cycle.sh
 ```
 
-Outputs (refreshed each cycle):
-
-- `cyber-security-engineer/assessments/openclaw-assessment.json`
-- `cyber-security-engineer/assessments/compliance-summary.json`
-- `cyber-security-engineer/assessments/compliance-dashboard.html`
-- `cyber-security-engineer/assessments/port-monitor-latest.json`
-- `cyber-security-engineer/assessments/egress-monitor-latest.json`
-
-## View Dashboard Locally
+Then open the dashboard:
 
 ```bash
 cd cyber-security-engineer/assessments
 python3 -m http.server 8088
 ```
 
-Open:
+Open this URL in your browser:
 
 - `http://127.0.0.1:8088/compliance-dashboard.html`
+
+## What You Will See
+
+After each security cycle, these files are updated:
+
+- `cyber-security-engineer/assessments/compliance-dashboard.html`
+  - Human-friendly report page
+- `cyber-security-engineer/assessments/compliance-summary.json`
+  - Structured summary for tools/integrations
+- `cyber-security-engineer/assessments/openclaw-assessment.json`
+  - Control checklist and status
+- `cyber-security-engineer/assessments/port-monitor-latest.json`
+  - Latest open-port scan
+- `cyber-security-engineer/assessments/egress-monitor-latest.json`
+  - Latest outbound connection scan
+
+## Core Protections
+
+### 1) Approval Before Privileged Actions
+
+Privileged commands should be run through:
+
+```bash
+python3 cyber-security-engineer/scripts/guarded_privileged_exec.py \
+  --reason "why privileged access is needed" \
+  --use-sudo \
+  -- /absolute/path/to/command arg1 arg2
+```
+
+This provides:
+
+- Approval-first execution
+- Command policy checks (if configured)
+- Automatic drop back to normal mode by default
+- Audit logging to `~/.openclaw/security/privileged-audit.jsonl`
+
+### 2) Open Port Monitoring
+
+Generate an approved baseline from current listeners:
+
+```bash
+python3 cyber-security-engineer/scripts/generate_approved_ports.py
+```
+
+This creates:
+
+- `~/.openclaw/security/approved_ports.json`
+
+Starter template:
+
+- `cyber-security-engineer/references/approved_ports.template.json`
+
+### 3) Outbound Network Monitoring
+
+Check current outbound TCP connections against your allowlist:
+
+```bash
+python3 cyber-security-engineer/scripts/egress_monitor.py --json
+```
+
+Allowlist path:
+
+- `~/.openclaw/security/egress_allowlist.json`
+
+Starter template:
+
+- `cyber-security-engineer/references/egress-allowlist.template.json`
+
+## Optional Features
+
+### Runtime Hook for `sudo`
+
+This installs a guarded `sudo` shim to reduce bypasses:
+
+```bash
+./cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh
+openclaw gateway restart
+```
+
+Skip this hook during bootstrap:
+
+```bash
+ENFORCE_PRIVILEGED_EXEC=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
+```
+
+### Notification on New Findings
+
+You can send alerts when new violations/partials appear:
+
+- `OPENCLAW_VIOLATION_NOTIFY_CMD`
+  - Command that receives the message on stdin
+- `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST`
+  - Allowed notifier commands
+  - Supports exact JSON argv rules (recommended) or legacy comma-separated binaries
+
+## Common Terms
+
+- Privileged command
+  - A command that needs elevated system permissions
+- Baseline
+  - The approved list of expected behavior (for example approved ports)
+- Egress
+  - Outbound network traffic from your machine
+- Compliance dashboard
+  - A report view mapped to ISO 27001 and NIST checks
