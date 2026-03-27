@@ -1,6 +1,6 @@
 ---
 name: cyber-security-engineer
-version: 0.1.8
+version: 0.1.9
 description: Security engineering workflow for OpenClaw privilege governance and hardening. Use for least-privilege execution, approval-first privileged actions, idle timeout controls, port + egress monitoring, and ISO 27001/NIST-aligned compliance reporting with mitigations.
 ---
 
@@ -29,6 +29,7 @@ description: Security engineering workflow for OpenClaw privilege governance and
 - `OPENCLAW_ALLOW_NONINTERACTIVE_SUDO` — set to `1` to allow non-interactive sudo through the shim (default: blocked)
 - `OPENCLAW_PRIV_REASON` — human-readable reason passed to the guarded execution wrapper
 - `OPENCLAW_VIOLATION_NOTIFY_STATE` — override path to the notification state file
+- `OPENCLAW_SKIP_PLIST_CONFIRM` — set to `1` to skip the interactive confirmation before modifying the macOS LaunchAgent plist
 
 **Policy files (admin reviewed):**
 - `~/.openclaw/security/approved_ports.json`
@@ -66,9 +67,10 @@ prepending `~/.openclaw/bin` to `PATH` in the OpenClaw gateway process.
 - It does not grant itself any elevated permissions
 - It only affects processes whose `PATH` includes `~/.openclaw/bin` before `/usr/bin`
 
-**Opt-in:** The hook is only installed when `ENFORCE_PRIVILEGED_EXEC=1` (the default
-in bootstrap). Skip it with `ENFORCE_PRIVILEGED_EXEC=0`. The shim can be removed at
-any time by deleting `~/.openclaw/bin/sudo`.
+**Opt-in:** The hook is **not installed by default**. To enable it, run bootstrap with
+`ENFORCE_PRIVILEGED_EXEC=1`. On macOS, the installer will prompt for confirmation
+before modifying the gateway LaunchAgent plist. The shim can be removed at any time
+by deleting `~/.openclaw/bin/sudo`.
 
 ## File Writes
 

@@ -103,20 +103,23 @@ Starter template:
 
 ## Optional Features
 
-### Runtime Hook for `sudo`
+### Runtime Hook for `sudo` (opt-in)
 
-This installs a guarded `sudo` shim to reduce bypasses:
+This installs a guarded `sudo` shim that requires approval before privileged commands run.
+It is **not installed by default**. To enable it during bootstrap:
+
+```bash
+ENFORCE_PRIVILEGED_EXEC=1 ./scripts/bootstrap-openclaw-cyber-analyst.sh
+```
+
+Or install it standalone:
 
 ```bash
 ./cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh
 openclaw gateway restart
 ```
 
-Skip this hook during bootstrap:
-
-```bash
-ENFORCE_PRIVILEGED_EXEC=0 ./scripts/bootstrap-openclaw-cyber-analyst.sh
-```
+The shim can be removed at any time by deleting `~/.openclaw/bin/sudo`.
 
 ### Notification on New Findings
 

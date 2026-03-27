@@ -137,6 +137,16 @@ log "Installed sudo shim: ${WRAPPER}"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   PLIST="${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist"
   if [[ -f "${PLIST}" ]] && command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then
+    if [[ -t 0 && "${OPENCLAW_SKIP_PLIST_CONFIRM:-0}" != "1" ]]; then
+      printf '[cyber-security-engineer] This will modify the gateway LaunchAgent PATH in:\n  %s\nProceed? [y/N]: ' "${PLIST}"
+      read -r confirm
+      if [[ "${confirm}" != "y" && "${confirm}" != "Y" ]]; then
+        log "Skipped LaunchAgent PATH modification. You can add ${BIN_DIR} to PATH manually."
+        log "Restart the OpenClaw gateway to apply:"
+        log "  openclaw gateway restart"
+        exit 0
+      fi
+    fi
     # Ensure EnvironmentVariables exists and prepend ~/.openclaw/bin to PATH.
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "${PLIST}" 2>/dev/null || true
     EXISTING_PATH="$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:PATH" "${PLIST}" 2>/dev/null || true)"
