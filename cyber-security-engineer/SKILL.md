@@ -1,5 +1,6 @@
 ---
 name: cyber-security-engineer
+version: 0.1.8
 description: Security engineering workflow for OpenClaw privilege governance and hardening. Use for least-privilege execution, approval-first privileged actions, idle timeout controls, port + egress monitoring, and ISO 27001/NIST-aligned compliance reporting with mitigations.
 ---
 
@@ -68,6 +69,31 @@ prepending `~/.openclaw/bin` to `PATH` in the OpenClaw gateway process.
 **Opt-in:** The hook is only installed when `ENFORCE_PRIVILEGED_EXEC=1` (the default
 in bootstrap). Skip it with `ENFORCE_PRIVILEGED_EXEC=0`. The shim can be removed at
 any time by deleting `~/.openclaw/bin/sudo`.
+
+## File Writes
+
+This skill writes only to `~/.openclaw/` and the `assessments/` directory inside the
+skill folder. No files are written outside these two trees.
+
+**Under `~/.openclaw/` (user config/state):**
+- `~/.openclaw/security/approved_ports.json` — generated port baseline (by `generate_approved_ports.py`)
+- `~/.openclaw/security/root-session-state.json` — elevated session state (by `root_session_guard.py`)
+- `~/.openclaw/security/privileged-audit.jsonl` — append-only audit log (by `audit_logger.py`)
+- `~/.openclaw/security/violation-notify-state.json` — notification diff state (by `notify_on_violation.py`)
+- `~/.openclaw/bin/sudo` — opt-in sudo shim (by `install-openclaw-runtime-hook.sh`, see Runtime Hook section)
+- `~/.openclaw/logs/cyber-security-engineer-auto.log` — auto-cycle run log (by `auto_invoke_cycle.sh`)
+
+**Under `assessments/` (inside skill directory):**
+- `assessments/openclaw-assessment.json` — compliance check results
+- `assessments/compliance-summary.json` — structured summary for tools/integrations
+- `assessments/compliance-dashboard.html` — human-readable report page
+- `assessments/port-monitor-latest.json` — latest open-port scan output
+- `assessments/egress-monitor-latest.json` — latest outbound connection scan output
+
+**Temporary files:**
+- A short-lived temp file via `tempfile.NamedTemporaryFile` (by `generate_approved_ports.py`) — auto-cleaned
+
+No files are written to `/usr/`, `/etc/`, or any system directory.
 
 ## Non-Goals (Web Browsing)
 
