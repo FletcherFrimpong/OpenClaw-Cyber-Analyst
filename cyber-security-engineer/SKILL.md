@@ -7,16 +7,27 @@ description: Security engineering workflow for OpenClaw privilege governance and
 
 ## Requirements
 
-**Env vars (optional, but documented):**
-- `OPENCLAW_REQUIRE_POLICY_FILES`
-- `OPENCLAW_REQUIRE_SESSION_ID`
-- `OPENCLAW_TASK_SESSION_ID`
-- `OPENCLAW_APPROVAL_TOKEN`
-- `OPENCLAW_UNTRUSTED_SOURCE`
-- `OPENCLAW_VIOLATION_NOTIFY_CMD`
-- `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST`
+**Required tools:**
+- `python3` (>= 3.8)
+- `openclaw` CLI (installed via `npm` during bootstrap, or pre-installed)
+- `npm` (only needed for bootstrap if `openclaw` is not already installed)
+- One of `lsof`, `ss`, or `netstat` for port/egress checks
+- `stat`, `readlink` (standard on macOS/Linux, used by the runtime hook installer)
 
-**Tools:** `python3` and one of `lsof`, `ss`, or `netstat` for port/egress checks.
+**Env vars (all optional, documented for configuration):**
+- `OPENCLAW_REQUIRE_POLICY_FILES` — set to `1` to block privileged execution when policy files are missing
+- `OPENCLAW_REQUIRE_SESSION_ID` — set to `1` to require a task session id for each privileged action
+- `OPENCLAW_TASK_SESSION_ID` — per-task session id (used when `OPENCLAW_REQUIRE_SESSION_ID=1`)
+- `OPENCLAW_APPROVAL_TOKEN` — if set, requires this token during the approval step
+- `OPENCLAW_UNTRUSTED_SOURCE` — set to `1` to flag the current content source as untrusted
+- `OPENCLAW_VIOLATION_NOTIFY_CMD` — absolute path to a notifier binary (must also be allowlisted)
+- `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST` — JSON array of allowed argv arrays, or comma-separated absolute paths
+- `OPENCLAW_REAL_SUDO` — override path to the real sudo binary (used by the runtime hook shim)
+- `OPENCLAW_PYTHON3` — override path to python3 (used by the runtime hook shim)
+- `OPENCLAW_CYBER_SKILL_DIR` — override path to the skill directory (used by the runtime hook shim)
+- `OPENCLAW_ALLOW_NONINTERACTIVE_SUDO` — set to `1` to allow non-interactive sudo through the shim (default: blocked)
+- `OPENCLAW_PRIV_REASON` — human-readable reason passed to the guarded execution wrapper
+- `OPENCLAW_VIOLATION_NOTIFY_STATE` — override path to the notification state file
 
 **Policy files (admin reviewed):**
 - `~/.openclaw/security/approved_ports.json`
@@ -35,6 +46,28 @@ Implement these controls in every security-sensitive task:
 7. Monitor outbound connections and flag destinations not in the egress allowlist.
 8. If no approved baseline exists, generate one with `python3 scripts/generate_approved_ports.py`, then review and prune.
 9. Benchmark controls against ISO 27001 and NIST and report violations with mitigations.
+
+## Runtime Hook (sudo shim)
+
+The script `scripts/install-openclaw-runtime-hook.sh` installs an **opt-in** sudo
+shim at `~/.openclaw/bin/sudo`. This shim **shadows** the system `sudo` binary by
+prepending `~/.openclaw/bin` to `PATH` in the OpenClaw gateway process.
+
+**What it does:**
+- Intercepts `sudo` invocations and routes them through `guarded_privileged_exec.py`
+- Requires explicit interactive user approval before running any privileged command
+- Enforces command policy allow/deny rules, audit logging, and a 30-minute idle timeout
+- Blocks non-interactive sudo by default (prevents automated abuse)
+- Passes through harmless flags (`-h`, `--version`, `-k`, `-l`) directly to real sudo
+
+**What it does NOT do:**
+- It does not replace or modify the system sudo binary
+- It does not grant itself any elevated permissions
+- It only affects processes whose `PATH` includes `~/.openclaw/bin` before `/usr/bin`
+
+**Opt-in:** The hook is only installed when `ENFORCE_PRIVILEGED_EXEC=1` (the default
+in bootstrap). Skip it with `ENFORCE_PRIVILEGED_EXEC=0`. The shim can be removed at
+any time by deleting `~/.openclaw/bin/sudo`.
 
 ## Non-Goals (Web Browsing)
 

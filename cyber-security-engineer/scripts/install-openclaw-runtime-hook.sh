@@ -130,7 +130,7 @@ exec "\${PYTHON3_OVERRIDE}" "\${SKILL_DIR}/scripts/guarded_privileged_exec.py" \
   --use-sudo \
   -- "\$@"
 EOF
-chmod 755 "${WRAPPER}"
+chmod 700 "${WRAPPER}"
 
 log "Installed sudo shim: ${WRAPPER}"
 
