@@ -36,11 +36,11 @@ install_openclaw() {
   fi
 
   log "Installing OpenClaw via npm..."
-  if ! env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund --no-audit install -g openclaw@latest; then
+  if ! env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund install -g openclaw@latest; then
     log "Initial install failed. Cleaning npm artifacts and retrying..."
     npm uninstall -g openclaw >/dev/null 2>&1 || true
     cleanup_openclaw_npm_artifacts
-    env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund --no-audit install -g openclaw@latest
+    env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund install -g openclaw@latest
   fi
 }
 

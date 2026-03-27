@@ -21,7 +21,7 @@ import shlex
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 SHELL_LAUNCHERS = {
@@ -198,7 +198,10 @@ def _send_notification(message: str) -> int:
         if not _is_allowed_notify_command(argv):
             sys.stderr.write("notify_on_violation: refused notifier command (not in OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST)\n")
             return 0
-        p = subprocess.run(argv, check=False, input=message, text=True, timeout=5)
+        _UNSAFE_ENV_VARS = {"LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+                           "PYTHONPATH", "RUBYLIB", "NODE_PATH", "IFS", "CDPATH"}
+        safe_env = {k: v for k, v in os.environ.items() if k not in _UNSAFE_ENV_VARS}
+        p = subprocess.run(argv, check=False, input=message, text=True, timeout=5, env=safe_env)
         return int(p.returncode or 0)
     except Exception:
         return 0

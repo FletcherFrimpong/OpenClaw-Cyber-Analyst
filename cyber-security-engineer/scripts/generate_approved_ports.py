@@ -3,6 +3,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -39,11 +40,17 @@ def run_port_monitor(skill_dir: Path) -> Dict[str, object]:
         raise FileNotFoundError(f"port_monitor.py not found at {port_monitor}")
     # Use an empty-but-valid approved file so we always get a full inventory.
     # (port_monitor expects JSON; passing /dev/null would cause JSON parse errors.)
-    empty_approved = Path("/tmp/openclaw-approved-ports-empty.json")
+    empty_approved = None
     try:
-        empty_approved.write_text("[]\n", encoding="utf-8")
+        fd = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", prefix="openclaw-approved-ports-",
+            delete=False,
+        )
+        fd.write("[]\n")
+        fd.close()
+        empty_approved = Path(fd.name)
     except Exception:
-        # Best-effort fallback: if we can't write /tmp, omit approved-file entirely.
+        # Best-effort fallback: if we can't write a temp file, omit approved-file entirely.
         empty_approved = None
     cmd = [
         sys.executable,

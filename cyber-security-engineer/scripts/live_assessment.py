@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -43,6 +43,11 @@ def resolve_openclaw_bin() -> str:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def due_in(days: int) -> str:
+    """Return an ISO date string *days* from now, for dynamic due dates."""
+    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
 def load_json(path: Path):
@@ -245,7 +250,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Approval-first execution is not enforced for privileged actions.",
         "Run cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh and restart OpenClaw gateway.",
         "Security Engineering",
-        "2026-03-15",
+        due_in(14),
     )
 
     least_priv_ok = gateway_loopback_configured(cfg_json, cfg_text)
@@ -261,7 +266,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Least-privilege posture is not complete while writable/integrity warnings remain.",
         "Fix state dir ownership/permissions and enforce command allowlist/approval defaults.",
         "Platform Security",
-        "2026-03-07",
+        due_in(7),
     )
 
     set_check(
@@ -274,7 +279,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "No gap identified for timeout script presence.",
         "Ensure all privileged paths route through guarded_privileged_exec.py.",
         "Security Engineering",
-        "2026-03-15",
+        due_in(14),
     )
 
     audit_ok = audit_log_present()
@@ -288,7 +293,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Audit trail is missing or empty.",
         "Run privileged tasks via guarded_privileged_exec.py to populate audit logs.",
         "SecOps",
-        "2026-03-22",
+        due_in(21),
     )
 
     set_check(
@@ -301,7 +306,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Listening ports are not fully approved.",
         "Generate and prune approved_ports.json; close unnecessary services.",
         "Network Security",
-        "2026-03-25",
+        due_in(14),
     )
 
     set_check(
@@ -314,7 +319,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Insecure ports are still in use.",
         "Migrate to secure alternatives or close the ports.",
         "Network Security",
-        "2026-04-01",
+        due_in(21),
     )
 
     allowlist_ok = isinstance(cfg_json, dict) and find_channel_allowlists(cfg_json)
@@ -328,7 +333,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Inbound channel allowlists are missing, allowing unsolicited access.",
         "Set channels.<channel>.allowFrom to trusted sender IDs.",
         "Platform Security",
-        "2026-03-05",
+        due_in(7),
     )
 
     mention_ok = isinstance(cfg_json, dict) and group_mentions_required(cfg_json)
@@ -342,7 +347,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Group chats can trigger the agent without explicit mention.",
         "Set requireMention true for group configs or define mentionPatterns.",
         "Platform Security",
-        "2026-03-05",
+        due_in(7),
     )
 
     loopback_ok = gateway_loopback_configured(cfg_json, cfg_text)
@@ -356,7 +361,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Gateway may be exposed publicly or without token auth.",
         "Set gateway.mode=local, gateway.bind=loopback, auth.mode=token.",
         "Platform Security",
-        "2026-03-07",
+        due_in(7),
     )
 
     secrets_ok = permissions_hardened(OPENCLAW_DIR) and permissions_hardened(OPENCLAW_DIR / "openclaw.json")
@@ -370,7 +375,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Secrets and configs may be readable by other users.",
         "chmod 700 ~/.openclaw; chmod 600 ~/.openclaw/openclaw.json",
         "SecOps",
-        "2026-03-10",
+        due_in(7),
     )
 
     hook_ok = runtime_hook_installed()
@@ -384,7 +389,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Privileged actions can bypass approval enforcement.",
         "Install runtime hook and restart OpenClaw gateway.",
         "Security Engineering",
-        "2026-03-01",
+        due_in(7),
     )
 
     alt_paths = alt_privilege_paths_present()
@@ -399,7 +404,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Privilege escalation paths could bypass approval enforcement.",
         "Restrict su/doas usage or wrap via policy controls.",
         "Security Engineering",
-        "2026-03-20",
+        due_in(14),
     )
 
     backup_ok = backup_configured()
@@ -413,7 +418,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Recovery posture may be weak without backups.",
         "Configure backup of ~/.openclaw and audit logs.",
         "Platform Security",
-        "2026-03-30",
+        due_in(30),
     )
 
     update_ok = bool(version_text)
@@ -427,7 +432,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Update cadence not validated.",
         "Review release notes and update regularly.",
         "Platform Security",
-        "2026-04-15",
+        due_in(30),
     )
 
     prompt_policy = signals.get("prompt_policy") or {}
@@ -442,7 +447,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Untrusted content sources may trigger privileged actions without explicit confirmation.",
         "Enable prompt-policy.json require_confirmation_for_untrusted.",
         "Security Engineering",
-        "2026-03-12",
+        due_in(14),
     )
 
     cmd_policy = signals.get("command_policy") or {}
@@ -459,7 +464,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Privileged commands are not filtered by policy.",
         "Define deny/allow rules in command-policy.json.",
         "Security Engineering",
-        "2026-03-12",
+        due_in(14),
     )
 
     env_flags = signals.get("env_flags") or {}
@@ -474,7 +479,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Approvals may carry across tasks without explicit session scoping.",
         "Set OPENCLAW_REQUIRE_SESSION_ID=1 and provide OPENCLAW_TASK_SESSION_ID per task.",
         "Security Engineering",
-        "2026-03-18",
+        due_in(14),
     )
 
     mfa_enabled = isinstance(env_flags, dict) and bool(env_flags.get("OPENCLAW_APPROVAL_TOKEN"))
@@ -488,7 +493,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Privileged approvals rely on single-step confirmation.",
         "Set OPENCLAW_APPROVAL_TOKEN and require entry for approvals.",
         "Security Engineering",
-        "2026-03-20",
+        due_in(14),
     )
 
     egress_allowlist = signals.get("egress_allowlist") or []
@@ -503,7 +508,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Outbound connections are not constrained by allowlist.",
         "Define allowed outbound destinations.",
         "Network Security",
-        "2026-03-22",
+        due_in(21),
     )
 
     egress_report = signals.get("egress_report") or {}
@@ -519,7 +524,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         "Unapproved outbound connections detected." if egress_ok else "Allowlist missing; cannot validate egress.",
         "Approve or block outbound destinations.",
         "Network Security",
-        "2026-03-25",
+        due_in(21),
     )
 
     assessment["checks"] = sorted(checks_by_id.values(), key=lambda c: str(c.get("check_id", "")))

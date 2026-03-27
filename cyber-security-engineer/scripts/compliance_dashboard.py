@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import html
 import json
 from collections import Counter
 from datetime import datetime, timezone
@@ -109,19 +110,22 @@ def summarize(merged: List[Dict[str, object]]) -> Dict[str, object]:
 
 
 def render_html(system_name: str, merged: List[Dict[str, object]], summary: Dict[str, object]) -> str:
+    def esc(val: object) -> str:
+        return html.escape(str(val))
+
     def fmt_list(items: List[str]) -> str:
-        return ", ".join(items) if items else "-"
+        return html.escape(", ".join(items)) if items else "-"
 
     controls_rows = "\n".join(
-        f"<tr><td>{m['check_id']}</td><td>{m['title']}</td><td>{fmt_list(m['iso27001'])}</td><td>{fmt_list(m['nist'])}</td><td>{m['status']}</td><td>{m['risk']}</td></tr>"
+        f"<tr><td>{esc(m['check_id'])}</td><td>{esc(m['title'])}</td><td>{fmt_list(m['iso27001'])}</td><td>{fmt_list(m['nist'])}</td><td>{esc(m['status'])}</td><td>{esc(m['risk'])}</td></tr>"
         for m in merged
     )
     violation_rows = "\n".join(
-        f"<tr><td>{m['check_id']}</td><td>{m['status']}</td><td>{m['risk']}</td><td>{m['gap'] or '-'}</td><td>{m['evidence'] or '-'}</td></tr>"
+        f"<tr><td>{esc(m['check_id'])}</td><td>{esc(m['status'])}</td><td>{esc(m['risk'])}</td><td>{esc(m['gap'] or '-')}</td><td>{esc(m['evidence'] or '-')}</td></tr>"
         for m in summary["violations"]
     ) or "<tr><td colspan='5'>No violations or partial findings.</td></tr>"
     mitigation_rows = "\n".join(
-        f"<tr><td>{m['check_id']}</td><td>{m['mitigation']}</td><td>{m['owner'] or '-'}</td><td>{m['due_date'] or '-'}</td></tr>"
+        f"<tr><td>{esc(m['check_id'])}</td><td>{esc(m['mitigation'])}</td><td>{esc(m['owner'] or '-')}</td><td>{esc(m['due_date'] or '-')}</td></tr>"
         for m in summary["mitigations"]
     ) or "<tr><td colspan='4'>No mitigation actions recorded.</td></tr>"
 
@@ -133,7 +137,7 @@ def render_html(system_name: str, merged: List[Dict[str, object]], summary: Dict
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Compliance Dashboard - {system_name}</title>
+  <title>Compliance Dashboard - {esc(system_name)}</title>
   <style>
     :root {{
       --bg: #f2f5f9;
@@ -178,7 +182,7 @@ def render_html(system_name: str, merged: List[Dict[str, object]], summary: Dict
   <div class="wrap">
     <div class="panel">
       <h1>ISO 27001 / NIST Compliance Dashboard</h1>
-      <p>System: {system_name}</p>
+      <p>System: {esc(system_name)}</p>
       <p>Generated: {utc_now()}</p>
     </div>
 

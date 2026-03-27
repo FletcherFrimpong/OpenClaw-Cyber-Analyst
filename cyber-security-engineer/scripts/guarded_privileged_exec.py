@@ -20,7 +20,11 @@ SAFE_ENV_VARS = {
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
     "LANG": os.environ.get("LANG", "C.UTF-8"),
     "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+    "HOME": os.environ.get("HOME", "/root"),
+    "TERM": os.environ.get("TERM", "dumb"),
 }
+# Explicit allowlist: only the vars above are passed to subprocesses.
+# LD_PRELOAD, LD_LIBRARY_PATH, PYTHONPATH, IFS, CDPATH, etc. are excluded.
 
 
 def run_guard(args, *guard_args):
@@ -48,7 +52,7 @@ def ask_for_approval(reason: str, command_argv: List[str]) -> bool:
     return approved
 
 
-def _validate_binary(path: str) -> Optional[str]:
+def _validate_binary(path: str, allow_setuid: bool = False) -> Optional[str]:
     """Validate a binary path. Returns error string if invalid, else None."""
     if not path:
         return "missing binary"
@@ -66,6 +70,8 @@ def _validate_binary(path: str) -> Optional[str]:
         return "binary is not root-owned"
     if (st.st_mode & 0o022) != 0:
         return "binary is group/other writable"
+    if not allow_setuid and (st.st_mode & 0o6000):
+        return "binary has setuid/setgid bit set"
     return None
 
 
@@ -87,13 +93,15 @@ def _validate_command_argv(argv: List[str]) -> Optional[str]:
         return "command binary is not root-owned"
     if (st.st_mode & 0o022) != 0:
         return "command binary is group/other writable"
+    if st.st_mode & 0o6000:
+        return "command binary has setuid/setgid bit set"
     return None
 
 
 def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
     sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "/usr/bin/sudo")
     if use_sudo:
-        err = _validate_binary(sudo_bin)
+        err = _validate_binary(sudo_bin, allow_setuid=True)
         if err:
             append_audit({"action": "sudo_binary_invalid", "binary": sudo_bin, "error": err})
             print(f"Invalid sudo binary: {err}", file=sys.stderr)

@@ -121,6 +121,8 @@ if [[ ! -t 0 && "\${OPENCLAW_ALLOW_NONINTERACTIVE_SUDO:-0}" != "1" ]]; then
 fi
 
 REASON="\${OPENCLAW_PRIV_REASON:-OpenClaw requested privileged execution}"
+# Sanitize reason: strip shell metacharacters to prevent injection
+REASON="\$(printf '%s' "\${REASON}" | tr -d '\`\$\\!;|&<>(){}' | head -c 200)"
 export OPENCLAW_REAL_SUDO="\${REAL_SUDO_OVERRIDE}"
 export OPENCLAW_PYTHON3="\${PYTHON3_OVERRIDE}"
 exec "\${PYTHON3_OVERRIDE}" "\${SKILL_DIR}/scripts/guarded_privileged_exec.py" \

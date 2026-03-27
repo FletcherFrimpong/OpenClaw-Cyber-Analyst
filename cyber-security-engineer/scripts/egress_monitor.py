@@ -191,9 +191,12 @@ def is_allowed(conn: Dict[str, object], rules: List[Dict[str, object]]) -> bool:
         host_re = rule.get("host_regex")
         if host_re:
             try:
-                if not re.search(str(host_re), host):
+                pattern = str(host_re)
+                if len(pattern) > 200:
                     continue
-            except re.error:
+                if not re.search(pattern, host, flags=0):
+                    continue
+            except (re.error, TimeoutError):
                 continue
         else:
             host_exact = rule.get("host")

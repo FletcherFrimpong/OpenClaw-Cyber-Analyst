@@ -2,6 +2,7 @@
 import json
 import re
 import shlex
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -28,7 +29,8 @@ def _compile_patterns(items: object) -> List[re.Pattern]:
             continue
         try:
             out.append(re.compile(s))
-        except re.error:
+        except re.error as e:
+            sys.stderr.write(f"command_policy: skipping invalid regex pattern '{s}': {e}\n")
             continue
     return out
 
