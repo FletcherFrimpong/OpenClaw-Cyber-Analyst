@@ -246,25 +246,25 @@ def commands_match(rule_command: object, entry_command: object) -> bool:
 
 
 def matching_rule(entry: Dict[str, object], approved: List[Dict[str, object]]) -> Optional[Dict[str, object]]:
-    for rule in approved:
-        if rule.get("port") == ANY_PORT:
+    """The baseline entry that approves this listener, or None."""
+    for candidate in approved:
+        if candidate.get("port") == ANY_PORT:
             # For services that pick a new port each time they start. The process name is
             # then the only thing identifying the service, so it is required.
-            if not rule.get("command"):
+            if not candidate.get("command"):
                 continue
         else:
             try:
-                if int(rule.get("port")) != int(entry["port"]):
+                if int(candidate.get("port")) != int(entry["port"]):
                     continue
             except (TypeError, ValueError):
                 continue
-        rule_proto = str(rule.get("protocol", "tcp")).lower()
-        if rule_proto != str(entry["protocol"]).lower():
+        if str(candidate.get("protocol", "tcp")).lower() != str(entry["protocol"]).lower():
             continue
-        rule_cmd = rule.get("command")
-        if rule_cmd and not commands_match(rule_cmd, entry["command"]):
+        wanted_command = candidate.get("command")
+        if wanted_command and not commands_match(wanted_command, entry["command"]):
             continue
-        return rule
+        return candidate
     return None
 
 

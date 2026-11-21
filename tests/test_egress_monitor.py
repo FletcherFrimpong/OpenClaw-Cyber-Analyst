@@ -250,6 +250,20 @@ class RuleTests(unittest.TestCase):
     def test_ipv4_mapped_ipv6_matches_ipv4_rule(self):
         self.assertTrue(self.allowed(rules({"host": "8.8.8.8"}), conn(remote_host="::ffff:8.8.8.8")))
 
+    def test_every_destination_constraint_must_hold(self):
+        # host AND cidr: an address that satisfies only one of them is not allowed.
+        both = rules({"host": "api.openai.com", "cidr": "104.18.0.0/16", "port": 443})
+        self.assertTrue(self.allowed(both, conn(remote_host="104.18.7.192")))
+        self.assertFalse(self.allowed(both, conn(remote_host="2606:4700::6810:7c0")))  # host only
+        self.assertFalse(self.allowed(both, conn(remote_host="104.18.99.1")))  # cidr only
+        with_regex = rules({"cidr": "10.0.0.0/8", "host_regex": "^10\\.1\\."})
+        self.assertTrue(self.allowed(with_regex, conn(remote_host="10.1.2.3")))
+        self.assertFalse(self.allowed(with_regex, conn(remote_host="10.2.2.3")))  # cidr only
+        self.assertFalse(self.allowed(with_regex, conn(remote_host="11.1.2.3")))  # neither
+        all_three = rules({"host": "api.openai.com", "cidr": "104.18.0.0/16", "host_regex": "openai\\.com$"})
+        self.assertTrue(self.allowed(all_three, conn(remote_host="104.18.7.192")))
+        self.assertFalse(self.allowed(rules({"host": "8.8.8.8", "cidr": "10.0.0.0/8"}), conn(remote_host="8.8.8.8")))
+
     def test_command_is_case_insensitive(self):
         r = rules({"host": "api.openai.com", "command": "Node"})
         self.assertTrue(self.allowed(r, conn(command="node")))

@@ -66,7 +66,7 @@ def run_port_monitor(skill_dir: Path) -> Dict[str, object]:
 
 
 def normalize_listeners(listening: List[Dict[str, object]], include_command: bool) -> Tuple[List[Dict[str, object]], int]:
-    rules: List[Dict[str, object]] = []
+    baseline: List[Dict[str, object]] = []
     seen = set()
     for entry in listening:
         try:
@@ -94,10 +94,10 @@ def normalize_listeners(listening: List[Dict[str, object]], include_command: boo
         if dedupe in seen:
             continue
         seen.add(dedupe)
-        rules.append(rule)
+        baseline.append(rule)
 
-    rules.sort(key=lambda r: (int(r.get("port", 0)), str(r.get("protocol", "")), str(r.get("command", ""))))
-    return rules, len(seen)
+    baseline.sort(key=lambda r: (int(r.get("port", 0)), str(r.get("protocol", "")), str(r.get("command", ""))))
+    return baseline, len(seen)
 
 
 def main() -> int:

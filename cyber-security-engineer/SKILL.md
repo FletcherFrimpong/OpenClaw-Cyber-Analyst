@@ -1,7 +1,8 @@
 ---
 name: cyber-security-engineer
-version: 0.2.1
+version: 0.2.2
 homepage: https://github.com/FletcherFrimpong/OpenClaw-Cyber-Analyst
+allowed-tools: Bash Read Write
 metadata:
   {
     "openclaw":
@@ -15,6 +16,20 @@ description: Security engineering workflow for OpenClaw privilege governance and
 ---
 
 # Cyber Security Engineer
+
+## Tool Scope
+
+This skill works through three kinds of tool use, all on the local host:
+
+- **Shell:** runs the Python and shell scripts in `scripts/`. They list listening sockets and
+  connections (`lsof`, `ss` or `netstat`), list processes (`ps`), read OpenClaw's own status
+  (`openclaw doctor`, `openclaw --version`), and run a command the user has approved.
+- **File read:** OpenClaw's configuration and the policy files under `~/.openclaw/`.
+- **File write:** only the paths listed under *File Writes* below.
+
+It needs no credentials, API keys or web access. The one network use is DNS lookups of the
+hostnames in the user's egress allowlist. Scripts pass only a short, named list of environment
+variables to the programs they start.
 
 ## Requirements
 
@@ -37,7 +52,7 @@ description: Security engineering workflow for OpenClaw privilege governance and
 - `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST` — JSON array of allowed argv arrays, or comma-separated absolute paths
 - `OPENCLAW_PRIV_REASON` — human-readable reason passed to the guarded execution wrapper
 - `OPENCLAW_VIOLATION_NOTIFY_STATE` — override path to the notification state file
-- `OPENCLAW_HOOK_ASSUME_YES` — set to `1` to let the hook installer change OpenClaw's command PATH without asking (for unattended installs; without it and without a terminal, nothing is changed)
+- `OPENCLAW_HOOK_ASSUME_YES` — set to `1` to confirm in advance that the hook installer may change OpenClaw's command PATH (for unattended installs; with no terminal and no advance confirmation, nothing is changed)
 
 **Policy files (admin reviewed):**
 - `~/.openclaw/security/approved_ports.json`
@@ -69,7 +84,7 @@ putting `~/.openclaw/bin` first on the `PATH` of commands OpenClaw runs, through
 - Requires approval typed at the controlling terminal before running any privileged command
 - Runs the command as `sudo -k -- <command>`, so sudo asks for the password every time
 - Enforces command policy allow/deny rules, audit logging, and a 30-minute idle timeout
-- Resolves bare command names (`sudo ls`) in the system directories only; sudo options such as `-u` are not supported
+- Resolves bare command names (for example `ls`) in the system directories only. Options such as `-u` are not supported
 - Passes a flag straight to the real sudo only when it is the single argument and runs nothing:
   `-h`, `--help`, `-V`, `--version`, `-k`, `-K`. The same flag followed by a command goes through the guard.
 

@@ -22,7 +22,9 @@ Every remaining connection must match a rule in
 
 ## Allowlist Format
 
-A JSON array of rules. Every field given in a rule must match.
+A JSON array of rules. Every field given in a rule must match. That includes the
+ways of naming a destination: a rule with both `host` and `cidr` allows a connection
+only when the address satisfies both.
 
 | Field | Meaning |
 | --- | --- |

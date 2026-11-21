@@ -47,6 +47,9 @@ SHELL_LAUNCHERS = {
 }
 
 
+NOTIFIER_ENV_VARS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TMPDIR")
+
+
 def _default_state_file() -> str:
     base = os.path.join(os.path.expanduser("~"), ".openclaw", "security")
     return os.path.join(base, "violation-notify-state.json")
@@ -198,9 +201,8 @@ def _send_notification(message: str) -> int:
         if not _is_allowed_notify_command(argv):
             sys.stderr.write("notify_on_violation: refused notifier command (not in OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST)\n")
             return 0
-        _UNSAFE_ENV_VARS = {"LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
-                           "PYTHONPATH", "RUBYLIB", "NODE_PATH", "IFS", "CDPATH"}
-        safe_env = {k: v for k, v in os.environ.items() if k not in _UNSAFE_ENV_VARS}
+        # The notifier gets a short, named set of variables, not the whole environment.
+        safe_env = {name: os.environ[name] for name in NOTIFIER_ENV_VARS if name in os.environ}
         p = subprocess.run(argv, check=False, input=message, text=True, timeout=5, env=safe_env)
         return int(p.returncode or 0)
     except Exception:

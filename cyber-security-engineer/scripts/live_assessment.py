@@ -36,6 +36,10 @@ REAL_SUDO = "/usr/bin/sudo"
 GATEWAY_PLIST = Path.home() / "Library" / "LaunchAgents" / "ai.openclaw.gateway.plist"
 SERVICE_ENV_FILE = OPENCLAW_DIR / "service-env" / "ai.openclaw.gateway.env"
 MAX_RELEASE_AGE_MONTHS = 3
+CLI_ENV_VARS = (
+    "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TMPDIR",
+    "OPENCLAW_STATE_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_WORKSPACE_DIR",
+)
 
 
 def run_cmd(cmd: List[str], env: Optional[Dict[str, str]] = None) -> str:
@@ -91,7 +95,8 @@ def openclaw_env(openclaw_bin: str) -> Dict[str, str]:
     for directory in candidates + current:
         if directory not in seen:
             seen.append(directory)
-    env = dict(os.environ)
+    # Only the variables the CLI needs are passed on, by name.
+    env = {name: os.environ[name] for name in CLI_ENV_VARS if name in os.environ}
     env["PATH"] = ":".join(seen)
     return env
 
@@ -352,6 +357,9 @@ def collect_runtime_signals(port_monitor_script: Path) -> Dict[str, object]:
     openclaw_config_text = run_cmd(["cat", str(Path.home() / ".openclaw" / "openclaw.json")])
     cli_env = openclaw_env(openclaw_bin)
     doctor_text = run_cmd([openclaw_bin, "doctor"], cli_env)
+    version_probe = run_cmd([openclaw_bin, "--version"], cli_env)
+    # The doctor output is only evidence if the CLI actually ran.
+    doctor_ran = release_age_months(version_probe) is not None and bool(doctor_text.strip())
     gateway_status_text = run_cmd([openclaw_bin, "gateway", "status"], cli_env)
     version_text = run_cmd([openclaw_bin, "--version"], cli_env)
 
@@ -374,6 +382,7 @@ def collect_runtime_signals(port_monitor_script: Path) -> Dict[str, object]:
         "openclaw_config_text": openclaw_config_text,
         "openclaw_config_json": load_openclaw_config(),
         "doctor_text": doctor_text,
+        "doctor_ran": doctor_ran,
         "gateway_status_text": gateway_status_text,
         "version_text": version_text,
         "port_report": port_report,
@@ -455,7 +464,7 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         )
     else:
         approval_status, approval_observed = "compliant", (
-            "Approval guard refuses without a terminal and discards forged session state; sudo is routed through it."
+            "Approval guard refuses without a terminal and discards forged session state. The gateway's sudo calls go through it."
         )
     set_check(
         checks_by_id,
@@ -473,8 +482,12 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
 
     runs_as_root = bool(sig("runs_as_root", openclaw_runs_as_root))
     writable_issue = "not writable" in doctor.lower()
+    doctor_ran = bool(signals.get("doctor_ran", True))
     if runs_as_root:
         least_status, least_observed = "violation", "OpenClaw or this assessment is running as root."
+    elif not doctor_ran:
+        # Without the health check there is no evidence about state permissions.
+        least_status, least_observed = "partial", "openclaw doctor could not be run, so state permissions were not checked."
     elif writable_issue:
         least_status, least_observed = "partial", "OpenClaw runs as a normal user, but openclaw doctor reports state that is not writable."
     else:
@@ -532,12 +545,15 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         due_in(21),
     )
 
+    # A port scan that did not complete proves nothing, so none of the port controls pass.
+    port_scan_ok = isinstance(port_report, dict) and port_report.get("status") == "ok"
+    port_failed_note = "Port scan failed; listening ports could not be checked."
     set_check(
         checks_by_id,
         "open_ports_approved",
-        "partial" if unapproved_ports else "compliant",
+        "partial" if (unapproved_ports or not port_scan_ok) else "compliant",
         "medium",
-        f"Unapproved listening ports: {len(unapproved_ports)}",
+        f"Unapproved listening ports: {len(unapproved_ports)}" if port_scan_ok else port_failed_note,
         "port_monitor.py report evaluated vs approved baseline.",
         "Listening ports are not fully approved.",
         "Generate and prune approved_ports.json; close unnecessary services.",
@@ -549,9 +565,9 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
     set_check(
         checks_by_id,
         "public_listeners_justified",
-        "partial" if public_ports else "compliant",
+        "partial" if (public_ports or not port_scan_ok) else "compliant",
         "medium",
-        f"Services listening on all interfaces without approval: {len(public_ports)}",
+        f"Services listening on all interfaces without approval: {len(public_ports)}" if port_scan_ok else port_failed_note,
         "port_monitor.py public-bind findings evaluated against allow_public rules in the approved baseline.",
         "Services are reachable from the network without a recorded justification.",
         "Bind each service to localhost, or set \"allow_public\": true on its rule in approved_ports.json "
@@ -563,9 +579,9 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
     set_check(
         checks_by_id,
         "insecure_ports_remediated",
-        "violation" if insecure else "compliant",
+        "violation" if insecure else ("compliant" if port_scan_ok else "partial"),
         "high",
-        f"Insecure ports detected: {len(insecure)}",
+        f"Insecure ports detected: {len(insecure)}" if port_scan_ok else port_failed_note,
         "port_monitor.py findings evaluated for insecure-port entries.",
         "Insecure ports are still in use.",
         "Migrate to secure alternatives or close the ports.",

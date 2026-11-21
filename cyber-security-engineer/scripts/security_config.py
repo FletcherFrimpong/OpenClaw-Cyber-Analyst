@@ -28,7 +28,10 @@ def is_private(path: Path) -> bool:
     except OSError:
         return False
     if os.name == "nt":
-        return True  # POSIX permission bits are not meaningful on Windows
+        # Windows access control lists are not inspected here, so privacy cannot be
+        # confirmed. Saying no keeps callers on the safe side: stored session state is
+        # discarded and approval is always asked for.
+        return False
     return st.st_uid == os.geteuid() and (st.st_mode & 0o077) == 0
 
 

@@ -4,6 +4,29 @@ All notable changes to this project are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); the version is the `version` field in
 `cyber-security-engineer/SKILL.md`.
 
+## 0.2.2 - 2026-11-21
+
+Addresses the findings of ClawHub's security scan of 0.2.1.
+
+### Security
+
+- **A failed port scan never counts as clean.** The three port controls reported
+  compliant when the scan itself failed. The least-privilege control likewise needs
+  `openclaw doctor` to have run.
+- **Audit log verification detects a missing beginning.** Entries cut off the start of
+  the log passed verification; the first entry must now start the chain or continue the
+  rotated file.
+- **Egress rules require every destination constraint.** A rule with both `host` and
+  `cidr` (or `host_regex`) allowed a connection that satisfied only one of them.
+- **Programs started by the skill get a short, named set of environment variables**
+  instead of a copy of the whole environment.
+- **On Windows, stored session state is never trusted**, because file privacy cannot be
+  confirmed there. Approval is always asked for.
+
+### Changed
+
+- `SKILL.md` states its tool scope (`allowed-tools` and a Tool Scope section).
+
 ## 0.2.1 - 2026-11-21
 
 Addresses the findings of ClawHub's security scan of 0.2.0, plus two problems found

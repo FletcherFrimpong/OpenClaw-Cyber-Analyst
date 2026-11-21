@@ -423,7 +423,12 @@ def is_local_destination(host: object) -> bool:
 # --------------------------------------------------------------------------
 
 class Rule:
-    """One compiled allowlist entry."""
+    """One compiled allowlist entry.
+
+    Every constraint written in the rule must hold. That includes the three ways of
+    naming a destination: a rule with both ``host`` and ``cidr`` allows a connection
+    only when the address satisfies both, never just one of them.
+    """
 
     def __init__(self, index: int, raw: Dict[str, object]) -> None:
         self.index = index
@@ -431,30 +436,37 @@ class Rule:
         self.protocol = str(raw.get("protocol") or "tcp").lower()
         self.ports = self._ports(raw)
         self.command = str(raw.get("command")).lower() if raw.get("command") else None
-        self.networks: List["ipaddress._BaseNetwork"] = []
-        self.hostnames: List[str] = []
-        self.regex: Optional["re.Pattern[str]"] = None
         self.errors: List[str] = []
-        self.constrains_host = False
 
+        # host / hosts: literal addresses and names to resolve
+        self.has_host = False
+        self.host_addresses: List["ipaddress._BaseNetwork"] = []
+        self.host_names: List[str] = []
+        for host in _as_list(raw.get("host")) + _as_list(raw.get("hosts")):
+            self.has_host = True
+            ip = parse_ip(host)
+            if ip is not None:
+                self.host_addresses.append(ipaddress.ip_network(f"{ip}/{ip.max_prefixlen}"))
+            else:
+                self.host_names.append(_normalize_hostname(str(host)))
+
+        # cidr
+        self.has_cidr = False
+        self.cidr_networks: List["ipaddress._BaseNetwork"] = []
         for cidr in _as_list(raw.get("cidr")):
-            self.constrains_host = True
+            self.has_cidr = True
             try:
-                self.networks.append(ipaddress.ip_network(str(cidr), strict=False))
+                self.cidr_networks.append(ipaddress.ip_network(str(cidr), strict=False))
             except ValueError:
                 self.errors.append(f"invalid cidr {cidr!r}")
 
-        for host in _as_list(raw.get("host")) + _as_list(raw.get("hosts")):
-            self.constrains_host = True
-            ip = parse_ip(host)
-            if ip is not None:
-                self.networks.append(ipaddress.ip_network(f"{ip}/{ip.max_prefixlen}"))
-            else:
-                self.hostnames.append(_normalize_hostname(str(host)))
-
+        # host_regex, plus the hostnames spelled out in it (resolved so the pattern
+        # can be tested against names as well as the raw address)
+        self.regex: Optional["re.Pattern[str]"] = None
+        self.regex_names: List[str] = []
         pattern = raw.get("host_regex")
+        self.has_regex = bool(pattern)
         if pattern:
-            self.constrains_host = True
             pattern = str(pattern)
             if len(pattern) > MAX_REGEX_LENGTH:
                 self.errors.append(f"host_regex longer than {MAX_REGEX_LENGTH} characters")
@@ -464,10 +476,7 @@ class Rule:
                 except re.error as exc:
                     self.errors.append(f"invalid host_regex: {exc}")
                 else:
-                    # Hostnames spelled out in the pattern are resolved like "host" entries.
-                    for name in hostnames_in_regex(pattern, self.regex):
-                        if name not in self.hostnames:
-                            self.hostnames.append(name)
+                    self.regex_names = hostnames_in_regex(pattern, self.regex)
 
     @staticmethod
     def _ports(raw: Dict[str, object]) -> Optional[Set[int]]:
@@ -483,9 +492,33 @@ class Rule:
         return None
 
     @property
+    def constrains_host(self) -> bool:
+        return self.has_host or self.has_cidr or self.has_regex
+
+    @property
+    def hostnames(self) -> List[str]:
+        """Every hostname this rule needs resolved."""
+        return self.host_names + [n for n in self.regex_names if n not in self.host_names]
+
+    @property
     def label(self) -> str:
         comment = self.raw.get("comment")
         return str(comment) if comment else f"rule {self.index + 1}"
+
+    def _host_holds(self, host: str, ip: Optional["ipaddress._BaseAddress"], resolved: Dict[str, Set[str]]) -> bool:
+        if ip is None:
+            return _normalize_hostname(host) in self.host_names
+        if any(ip.version == net.version and ip in net for net in self.host_addresses):
+            return True
+        return any(str(ip) in resolved.get(name, ()) for name in self.host_names)
+
+    def _cidr_holds(self, ip: Optional["ipaddress._BaseAddress"]) -> bool:
+        return ip is not None and any(ip.version == net.version and ip in net for net in self.cidr_networks)
+
+    def _regex_holds(self, host: str, ip: Optional["ipaddress._BaseAddress"], resolved: Dict[str, Set[str]]) -> bool:
+        if self.regex is None:
+            return False
+        return any(self.regex.search(candidate) for candidate in [host] + names_for_ip(ip, resolved))
 
     def matches(self, conn: Connection, resolved: Dict[str, Set[str]]) -> bool:
         if self.errors:
@@ -496,23 +529,16 @@ class Rule:
             return False
         if self.command and self.command != str(conn.get("command") or "").lower():
             return False
-        if not self.constrains_host:
-            return True
 
         host = str(conn.get("remote_host") or "")
         ip = parse_ip(host)
-        if ip is not None:
-            if any(ip.version == net.version and ip in net for net in self.networks):
-                return True
-            if any(str(ip) in resolved.get(name, ()) for name in self.hostnames):
-                return True
-        elif _normalize_hostname(host) in self.hostnames:
-            return True
-        if self.regex is not None:
-            candidates = [host] + names_for_ip(ip, resolved)
-            if any(self.regex.search(c) for c in candidates):
-                return True
-        return False
+        if self.has_host and not self._host_holds(host, ip, resolved):
+            return False
+        if self.has_cidr and not self._cidr_holds(ip):
+            return False
+        if self.has_regex and not self._regex_holds(host, ip, resolved):
+            return False
+        return True
 
 
 def _as_list(value: object) -> List[object]:

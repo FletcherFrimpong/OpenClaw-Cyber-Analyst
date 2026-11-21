@@ -59,6 +59,14 @@ class NotifierCommandTests(unittest.TestCase):
         self.assertEqual(nv._parse_notify_command("/usr/bin/logger -t tag"), ["/usr/bin/logger", "-t", "tag"])
         self.assertEqual(nv._parse_notify_command("  "), [])
 
+    def test_notifier_gets_named_variables_only(self):
+        env = {"OPENCLAW_VIOLATION_NOTIFY_CMD": "/usr/bin/true", "OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST": "/usr/bin/true",
+               "PATH": "/usr/bin", "HOME": "/home/x", "AWS_SECRET_ACCESS_KEY": "s", "LD_PRELOAD": "/x.so"}
+        completed = mock.Mock(returncode=0)
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(nv.subprocess, "run", return_value=completed) as run:
+            nv._send_notification("message")
+        self.assertEqual(run.call_args.kwargs["env"], {"PATH": "/usr/bin", "HOME": "/home/x"})
+
     def test_unlisted_notifier_is_never_run(self):
         env = {"OPENCLAW_VIOLATION_NOTIFY_CMD": "/usr/bin/true", "OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST": "/usr/bin/false"}
         with mock.patch.dict(os.environ, env), mock.patch.object(nv.subprocess, "run") as run:

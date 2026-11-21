@@ -124,6 +124,17 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(result["public_listeners_justified"]["status"], "partial")
         self.assertEqual(result["insecure_ports_remediated"]["status"], "violation")
 
+    def test_a_failed_port_scan_never_counts_as_clean(self):
+        for report in ({"status": "error", "error": "lsof failed"}, {"status": "error", "findings": []}, {}, None, "junk"):
+            result = assess(port_report=report)
+            for check in ("open_ports_approved", "insecure_ports_remediated", "public_listeners_justified"):
+                self.assertEqual(result[check]["status"], "partial", (check, report))
+                self.assertIn("Port scan failed", result[check]["observed_state"])
+
+    def test_least_privilege_needs_the_health_check_to_have_run(self):
+        self.assertEqual(self.status("least_privilege_enforced", doctor_ran=False), "partial")
+        self.assertEqual(self.status("least_privilege_enforced", doctor_ran=True), "compliant")
+
     def test_settings_come_from_the_env_file(self):
         result = assess(env_flags={})
         self.assertEqual(result["session_boundary_enforced"]["status"], "partial")
@@ -198,6 +209,13 @@ class ProbeTests(unittest.TestCase):
             with mock.patch.object(la, "SERVICE_ENV_FILE", Path(tmp) / "missing"), \
                     mock.patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True):
                 self.assertIn("/usr/bin", la.openclaw_env("openclaw")["PATH"].split(":"))
+
+    def test_openclaw_cli_gets_named_variables_only(self):
+        secrets = {"PATH": "/usr/bin", "HOME": "/home/x", "AWS_SECRET_ACCESS_KEY": "s", "TELEGRAM_BOT_TOKEN": "t",
+                   "OPENCLAW_APPROVAL_TOKEN": "a", "OPENCLAW_STATE_DIR": "/state"}
+        with mock.patch.dict("os.environ", secrets, clear=True):
+            env = la.openclaw_env("/opt/tools/bin/openclaw")
+        self.assertEqual(set(env), {"PATH", "HOME", "OPENCLAW_STATE_DIR"})
 
     def test_command_that_cannot_start_does_not_crash_the_assessment(self):
         self.assertTrue(la.run_cmd(["/no/such/openclaw", "--version"]).strip())

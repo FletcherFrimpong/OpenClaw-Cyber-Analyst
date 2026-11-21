@@ -207,7 +207,7 @@ def resolve_command(argv: List[str], search_path: str = SAFE_PATH) -> Tuple[List
     head = argv[0]
     if head.startswith("-"):
         return argv, (
-            "command must not start with an option; sudo options such as -u or -E are not "
+            "command must not start with an option. Options such as -u or -E are not "
             "supported through the guard"
         )
     if os.sep in head or (os.altsep and os.altsep in head):

@@ -21,12 +21,12 @@ service to be exposed, without the owner deciding that it should.
 
 | Control | Holds against an agent running as your user? | Why |
 | --- | --- | --- |
-| sudo's password prompt | Yes | Enforced by the operating system. The agent does not know the password. The guard discards cached sudo credentials so the prompt appears every time. |
+| The password prompt of sudo | Yes | Enforced by the operating system. The agent does not know the password. The guard discards cached sudo credentials so the prompt appears every time. |
 | Approval prompt on the terminal | Yes, when the agent has no terminal | The prompt is read from the controlling terminal, not stdin, so piping an answer does nothing. With no terminal the command is refused. |
 | Command policy (deny rules) | Partly | It blocks listed commands that go through the guard. It is a pattern match on the command line, so it is a safety net, not a sandbox. |
 | Signed session state | Partly | Stops accidental and casual edits. The signing key is in your account, so a determined process running as you could forge a state file. |
-| Hash-chained audit log | Partly | Detects edited, removed or inserted entries. A process running as you could replace the whole file with a new chain. |
-| sudo shim on the gateway's PATH | No, on its own | It routes ordinary `sudo` calls through the guard. Calling `/usr/bin/sudo` by its full path goes around it, and then meets sudo's password prompt. |
+| Hash-chained audit log | Partly | Detects edited, removed or inserted entries, and entries cut from the start. A process running as you could replace the whole file with a new chain. |
+| The sudo shim on OpenClaw's command PATH | No, on its own | It routes ordinary `sudo` calls through the guard. Calling `/usr/bin/sudo` by its full path goes around it, and then meets sudo's password prompt. |
 | Port, egress and compliance checks | Detective only | They report every 30 minutes. They do not block anything. |
 
 ## What this does not protect against

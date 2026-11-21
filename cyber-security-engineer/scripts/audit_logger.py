@@ -3,8 +3,8 @@
 
 Events are appended to ``~/.openclaw/security/privileged-audit.jsonl``, one JSON
 object per line. Each entry carries ``prev``: the SHA-256 of the line before it.
-Editing, removing or reordering an earlier entry breaks the chain, which
-``verify`` reports:
+Editing, removing or reordering an earlier entry breaks the chain, as does
+cutting entries off the start of the log, and ``verify`` reports it:
 
     python3 audit_logger.py verify
 
@@ -111,8 +111,15 @@ def verify(path: Optional[Path] = None) -> Dict[str, Any]:
                 break
             result["legacy"] += 1
         else:
-            # The first line of a file may follow a rotated file, so its link cannot be checked here.
-            if previous is not None and entry["prev"] != _line_hash(previous):
+            if previous is None:
+                # The first entry either starts the chain (empty link) or continues the
+                # rotated file. Anything else means the beginning of the log was removed.
+                if entry["prev"] != "":
+                    rotated_last = _last_line(Path(str(path) + ".1"))
+                    if rotated_last is None or entry["prev"] != _line_hash(rotated_last):
+                        result.update(ok=False, broken_at=number, error="earlier entries are missing from the start of the log")
+                        break
+            elif entry["prev"] != _line_hash(previous):
                 result.update(ok=False, broken_at=number, error="hash chain does not match the previous entry")
                 break
             seen_chained = True

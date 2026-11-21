@@ -161,6 +161,23 @@ class AuditLogTests(HomeCase):
             f.write('{"ts_utc":"2026-11-21T00:00:00Z","action":"inserted by hand"}\n')
         self.assertFalse(audit_logger.verify()["ok"])
 
+    def test_cutting_entries_off_the_start_breaks_the_chain(self):
+        self.write(4)
+        lines = self.audit.read_text().splitlines()
+        self.audit.write_text("\n".join(lines[2:]) + "\n")
+        report = audit_logger.verify()
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["broken_at"], 1)
+        self.assertIn("missing from the start", report["error"])
+
+    def test_log_that_continues_a_rotated_file_verifies_only_with_that_file(self):
+        self.write(2)
+        with mock.patch.object(audit_logger, "MAX_BYTES", 10):
+            self.write(2)
+        self.assertTrue(audit_logger.verify()["ok"])
+        Path(str(self.audit) + ".1").unlink()  # the earlier part of the chain is gone
+        self.assertFalse(audit_logger.verify()["ok"])
+
     def test_rotation_keeps_the_chain_going(self):
         self.write(2)
         last_before = self.audit.read_bytes().splitlines()[-1]
