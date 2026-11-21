@@ -152,6 +152,17 @@ class RenderTests(unittest.TestCase):
         self.assertIn("No mitigation actions recorded.", page)
         self.assertIn('class="donut-empty"', page)
 
+    def test_tables_are_paginated_past_the_page_size(self):
+        page = render(SAMPLE)
+        self.assertEqual(cd.PAGE_SIZE, 10)
+        self.assertIn("var PAGE_SIZE = 10;", page)
+        self.assertNotIn("__PAGE_SIZE__", page)
+        for element_id in ("pager", "pager-range", "pager-page", "pager-prev", "pager-next"):
+            self.assertEqual(page.count(f'id="{element_id}"'), 1, element_id)
+        # Every row is still in the page; the script only decides which are on screen.
+        many = [control(f"c{i}") for i in range(25)]
+        self.assertEqual(len(rows_of(render(many))["controls"]), 25)
+
     def test_summary_link_is_optional(self):
         self.assertNotIn("Summary JSON", render(SAMPLE))
         self.assertIn('href="compliance-summary.json"', render(SAMPLE, summary_href="compliance-summary.json"))

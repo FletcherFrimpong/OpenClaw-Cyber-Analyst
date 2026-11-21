@@ -125,6 +125,8 @@ STATUS_COUNT_LABELS = {
 }
 RISK_ORDER = ["critical", "high", "medium", "low"]
 RISK_LEVELS = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+# Rows shown per page in each table; a table with more rows than this is paginated.
+PAGE_SIZE = 10
 
 # 16px stroke icons (viewBox 0 0 16 16). Inline so the page needs no network access.
 ICONS = {
@@ -258,12 +260,13 @@ select.control { padding-right: 6px; cursor: pointer; }
 .search:focus-within { box-shadow: 0 0 0 2px var(--line-strong); }
 button.control { display: inline-flex; align-items: center; gap: 8px; background: var(--page); border-color: transparent; cursor: pointer; }
 button.control:hover { background: var(--hover); }
-.table-scroll { overflow-x: auto; border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
+.table-scroll { overflow-x: auto; border-top: 1px solid var(--line); }
+#records { overflow: hidden; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
 thead th { background: var(--raised); color: var(--ink-2); font-size: 13px; font-weight: 400; white-space: nowrap; }
-tbody tr:nth-child(even) { background: var(--raised); }
-tbody tr:last-child td { border-bottom: 0; }
+tbody tr.alt { background: var(--raised); }
+tbody tr.last td { border-bottom: 0; }
 td.num, th.num { width: 44px; color: var(--ink-2); font-variant-numeric: tabular-nums; border-right: 1px solid var(--line); }
 .control-title { font-weight: 500; }
 .control-id { color: var(--muted); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -285,6 +288,11 @@ td.num, th.num { width: 44px; color: var(--ink-2); font-variant-numeric: tabular
 .bars i.on { background: var(--ink); }
 td.wrap { min-width: 220px; color: var(--ink-2); }
 td.nowrap { white-space: nowrap; }
+.pager { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line);
+  color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.pager .spacer { flex: 1; }
+.pager button.control { height: 30px; }
+.pager button.control:disabled { color: var(--muted); cursor: default; background: none; }
 .empty { padding: 28px 16px; text-align: center; color: var(--ink-2); border-top: 1px solid var(--line); }
 [hidden] { display: none !important; }
 .tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--surface);
@@ -301,7 +309,7 @@ td.nowrap { white-space: nowrap; }
   .top { flex-wrap: wrap; } .search { flex: 1; min-width: 160px; }
 }
 @media print {
-  .side, .toolbar, .tabs { display: none; } .app { display: block; }
+  .side, .toolbar, .tabs, .pager { display: none; } .app { display: block; }
   section[data-view] { display: block !important; break-inside: avoid; }
 }
 """
@@ -315,7 +323,15 @@ DASHBOARD_JS = """
   var risk = document.getElementById('filter-risk');
   var query = document.getElementById('filter-query');
   var empty = document.getElementById('empty');
+  var pager = document.getElementById('pager');
+  var pagerRange = document.getElementById('pager-range');
+  var pagerPage = document.getElementById('pager-page');
+  var prev = document.getElementById('pager-prev');
+  var next = document.getElementById('pager-next');
+  var PAGE_SIZE = __PAGE_SIZE__;
   var current = 'controls';
+  var page = 1;
+  var matched = [];
 
   function activeView() {
     return views.filter(function (v) { return v.getAttribute('data-view') === current; })[0];
@@ -325,18 +341,45 @@ DASHBOARD_JS = """
     var view = activeView();
     var rows = Array.prototype.slice.call(view.querySelectorAll('tbody tr'));
     var s = status.value, r = risk.value, q = query.value.trim().toLowerCase();
-    var shown = 0;
-    rows.forEach(function (row) {
-      var ok = (!s || row.getAttribute('data-status') === s) &&
-               (!r || row.getAttribute('data-risk') === r) &&
-               (!q || row.textContent.toLowerCase().indexOf(q) !== -1);
-      row.hidden = !ok;
-      if (ok) { shown += 1; }
+    matched = rows.filter(function (row) {
+      return (!s || row.getAttribute('data-status') === s) &&
+             (!r || row.getAttribute('data-risk') === r) &&
+             (!q || row.textContent.toLowerCase().indexOf(q) !== -1);
     });
-    view.querySelector('.table-scroll').hidden = shown === 0;
-    empty.hidden = shown !== 0;
+    rows.forEach(function (row) { row.hidden = true; });
+    view.querySelector('.table-scroll').hidden = matched.length === 0;
+    empty.hidden = matched.length !== 0;
     empty.textContent = rows.length === 0 ? view.getAttribute('data-empty') : 'No controls match these filters.';
+    page = 1;
+    showPage();
   }
+
+  function showPage() {
+    var pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
+    page = Math.min(Math.max(1, page), pages);
+    var first = (page - 1) * PAGE_SIZE, last = Math.min(first + PAGE_SIZE, matched.length);
+    matched.forEach(function (row, i) {
+      var on = i >= first && i < last;
+      row.hidden = !on;
+      row.classList.toggle('alt', on && (i - first) % 2 === 1);
+      row.classList.toggle('last', on && i === last - 1 && pages === 1);
+    });
+    // The pager appears only when the rows do not fit on one page.
+    pager.hidden = pages === 1;
+    pagerRange.textContent = 'Showing ' + (first + 1) + '-' + last + ' of ' + matched.length;
+    pagerPage.textContent = 'Page ' + page + ' of ' + pages;
+    prev.disabled = page === 1;
+    next.disabled = page === pages;
+  }
+
+  function turnPage(step) {
+    page += step;
+    showPage();
+    var card = document.getElementById('records');
+    if (card.getBoundingClientRect().top < 0) { card.scrollIntoView({ block: 'start' }); }
+  }
+  prev.addEventListener('click', function () { turnPage(-1); });
+  next.addEventListener('click', function () { turnPage(1); });
 
   function markNav(target) {
     navs.forEach(function (n) { n.classList.toggle('is-active', n.getAttribute('data-target') === target); });
@@ -388,8 +431,7 @@ DASHBOARD_JS = """
   document.getElementById('export').addEventListener('click', function () {
     var view = activeView();
     var lines = [];
-    Array.prototype.slice.call(view.querySelectorAll('tr')).forEach(function (row) {
-      if (row.hidden) { return; }
+    [view.querySelector('thead tr')].concat(matched).forEach(function (row) {
       lines.push(Array.prototype.slice.call(row.children).map(function (c) { return csvField(cellText(c)); }).join(','));
     });
     var blob = new Blob([lines.join('\\r\\n') + '\\r\\n'], { type: 'text/csv;charset=utf-8' });
@@ -624,11 +666,18 @@ def render_html(
         {table("mitigations", "Mitigations", "No mitigation actions recorded.",
                ["#", "Control", "Mitigation", "Owner", "Due Date"], mitigation_rows, True)}
         <div class="empty" id="empty" hidden></div>
+        <div class="pager" id="pager" hidden>
+          <span id="pager-range"></span>
+          <span class="spacer"></span>
+          <span id="pager-page"></span>
+          <button class="control" id="pager-prev" type="button">Previous</button>
+          <button class="control" id="pager-next" type="button">Next</button>
+        </div>
       </div>
     </div>
   </main>
 </div>
-<script>{DASHBOARD_JS}</script>
+<script>{DASHBOARD_JS.replace("__PAGE_SIZE__", str(PAGE_SIZE))}</script>
 </body>
 </html>
 """
