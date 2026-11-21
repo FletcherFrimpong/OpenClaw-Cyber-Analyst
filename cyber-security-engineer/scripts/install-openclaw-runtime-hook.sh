@@ -134,50 +134,80 @@ chmod 700 "${WRAPPER}"
 
 log "Installed sudo shim: ${WRAPPER}"
 
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  PLIST="${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist"
-  if [[ -f "${PLIST}" ]] && command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then
-    if [[ -t 0 && "${OPENCLAW_SKIP_PLIST_CONFIRM:-0}" != "1" ]]; then
-      printf '[cyber-security-engineer] This will modify the gateway LaunchAgent PATH in:\n  %s\nProceed? [y/N]: ' "${PLIST}"
-      read -r confirm
-      if [[ "${confirm}" != "y" && "${confirm}" != "Y" ]]; then
-        log "Skipped LaunchAgent PATH modification. You can add ${BIN_DIR} to PATH manually."
-        log "Restart the OpenClaw gateway to apply:"
-        log "  openclaw gateway restart"
-        exit 0
-      fi
-    fi
-    # Ensure EnvironmentVariables exists and prepend ~/.openclaw/bin to PATH.
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "${PLIST}" 2>/dev/null || true
-    EXISTING_PATH="$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:PATH" "${PLIST}" 2>/dev/null || true)"
-    if [[ -z "${EXISTING_PATH}" ]]; then
-      NEW_PATH="${BIN_DIR}:/usr/bin:/bin:/usr/sbin:/sbin"
-      /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:PATH string ${NEW_PATH}" "${PLIST}" 2>/dev/null || \
-        /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:PATH ${NEW_PATH}" "${PLIST}" 2>/dev/null || true
-      log "Updated gateway LaunchAgent PATH to include ${BIN_DIR}"
-    else
-      case ":${EXISTING_PATH}:" in
-        *":${BIN_DIR}:"*) ;;
-        *)
-          NEW_PATH="${BIN_DIR}:${EXISTING_PATH}"
-          /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:PATH ${NEW_PATH}" "${PLIST}" 2>/dev/null || true
-          log "Prepended ${BIN_DIR} to gateway LaunchAgent PATH"
-          ;;
-      esac
-    fi
-  else
-    log "macOS gateway plist not found or PlistBuddy unavailable; PATH must include ${BIN_DIR} manually."
+# Make OpenClaw find the shim before the real sudo.
+#
+# Preferred: OpenClaw's own setting tools.exec.pathPrepend, which puts the directory
+# first on PATH for every command the gateway runs. Current OpenClaw releases start
+# the gateway through a generated environment file that replaces any PATH set in the
+# LaunchAgent, so editing the LaunchAgent alone no longer has any effect there.
+#
+# Fallback (older OpenClaw without that setting, macOS): the LaunchAgent's PATH.
+
+confirm_change() {
+  # $1 = what will be modified
+  if [[ -t 0 && "${OPENCLAW_SKIP_PLIST_CONFIRM:-0}" != "1" ]]; then
+    local reply
+    printf '[cyber-security-engineer] This will modify %s\nProceed? [y/N]: ' "$1"
+    read -r reply
+    [[ "${reply}" == "y" || "${reply}" == "Y" ]]
   fi
-else
-  log "Non-macOS: ensure the OpenClaw gateway process PATH includes ${BIN_DIR} before /usr/bin."
+}
+
+set_path_prepend() {
+  command -v openclaw >/dev/null 2>&1 || return 1
+  local merged
+  # Keep any directories already configured; put the shim directory first.
+  merged="$("${PYTHON3}" - "${OPENCLAW_DIR}/openclaw.json" "${BIN_DIR}" <<'PY'
+import json, sys
+config_path, shim_dir = sys.argv[1], sys.argv[2]
+try:
+    with open(config_path, encoding="utf-8") as f:
+        current = json.load(f).get("tools", {}).get("exec", {}).get("pathPrepend") or []
+except Exception:
+    current = []
+entries = [shim_dir] + [e for e in current if isinstance(e, str) and e != shim_dir]
+print(json.dumps(entries))
+PY
+)" || return 1
+  openclaw config set tools.exec.pathPrepend "${merged}" --strict-json >/dev/null 2>&1 || return 1
+  openclaw config validate >/dev/null 2>&1 || return 1
+}
+
+set_launchagent_path() {
+  local plist="${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist"
+  [[ "$(uname -s)" == "Darwin" && -f "${plist}" && -x /usr/libexec/PlistBuddy ]] || return 1
+  /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "${plist}" 2>/dev/null || true
+  local existing new_path
+  existing="$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:PATH" "${plist}" 2>/dev/null || true)"
+  if [[ -z "${existing}" ]]; then
+    new_path="${BIN_DIR}:/usr/bin:/bin:/usr/sbin:/sbin"
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:PATH string ${new_path}" "${plist}" 2>/dev/null || \
+      /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:PATH ${new_path}" "${plist}" 2>/dev/null || return 1
+  else
+    case ":${existing}:" in
+      *":${BIN_DIR}:"*) ;;
+      *) /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:PATH ${BIN_DIR}:${existing}" "${plist}" 2>/dev/null || return 1 ;;
+    esac
+  fi
+}
+
+if ! confirm_change "OpenClaw's command PATH (tools.exec.pathPrepend in ${OPENCLAW_DIR}/openclaw.json)"; then
+  log "Skipped. The shim is installed but OpenClaw will not use it until ${BIN_DIR} is first on its command PATH:"
+  log "  openclaw config set tools.exec.pathPrepend '[\"${BIN_DIR}\"]' --strict-json"
+  exit 0
 fi
 
-if [[ "$(uname -s)" == "Darwin" && -f "${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist" ]]; then
+if set_path_prepend; then
+  log "Set tools.exec.pathPrepend so OpenClaw runs ${BIN_DIR}/sudo before the real sudo."
+  log "Restart the OpenClaw gateway to apply:"
+  log "  openclaw gateway restart"
+elif set_launchagent_path; then
+  log "This OpenClaw has no tools.exec.pathPrepend setting; added ${BIN_DIR} to the gateway LaunchAgent PATH instead."
   # A plain restart keeps the old environment; the service has to be reloaded to see the new PATH.
   log "Reload the OpenClaw gateway service to apply:"
   log "  launchctl bootout gui/\$(id -u)/ai.openclaw.gateway"
   log "  launchctl bootstrap gui/\$(id -u) ${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist"
 else
-  log "Restart the OpenClaw gateway to apply:"
-  log "  openclaw gateway restart"
+  log "Could not configure OpenClaw's PATH automatically."
+  log "Make sure the OpenClaw gateway runs with ${BIN_DIR} before /usr/bin on its PATH, then restart it."
 fi

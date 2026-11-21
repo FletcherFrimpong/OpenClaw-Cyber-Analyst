@@ -232,6 +232,7 @@ def load_approved_ports(path: Path) -> List[Dict[str, object]]:
 
 
 PUBLIC_HOSTS = ("*", "0.0.0.0", "::")
+ANY_PORT = "*"
 _LSOF_NAME_WIDTH = 9  # lsof's default process-name width, used by older baselines
 
 
@@ -246,11 +247,17 @@ def commands_match(rule_command: object, entry_command: object) -> bool:
 
 def matching_rule(entry: Dict[str, object], approved: List[Dict[str, object]]) -> Optional[Dict[str, object]]:
     for rule in approved:
-        try:
-            if int(rule.get("port")) != int(entry["port"]):
+        if rule.get("port") == ANY_PORT:
+            # For services that pick a new port each time they start. The process name is
+            # then the only thing identifying the service, so it is required.
+            if not rule.get("command"):
                 continue
-        except (TypeError, ValueError):
-            continue
+        else:
+            try:
+                if int(rule.get("port")) != int(entry["port"]):
+                    continue
+            except (TypeError, ValueError):
+                continue
         rule_proto = str(rule.get("protocol", "tcp")).lower()
         if rule_proto != str(entry["protocol"]).lower():
             continue

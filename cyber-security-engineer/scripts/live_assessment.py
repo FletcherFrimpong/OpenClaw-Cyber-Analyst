@@ -34,11 +34,15 @@ AUDIT_LOG = Path.home() / ".openclaw" / "security" / "privileged-audit.jsonl"
 OPENCLAW_DIR = Path.home() / ".openclaw"
 REAL_SUDO = "/usr/bin/sudo"
 GATEWAY_PLIST = Path.home() / "Library" / "LaunchAgents" / "ai.openclaw.gateway.plist"
+SERVICE_ENV_FILE = OPENCLAW_DIR / "service-env" / "ai.openclaw.gateway.env"
 MAX_RELEASE_AGE_MONTHS = 3
 
 
-def run_cmd(cmd: List[str]) -> str:
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+def run_cmd(cmd: List[str], env: Optional[Dict[str, str]] = None) -> str:
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"\n{exc}"
     if proc.returncode != 0:
         return (proc.stdout or "") + "\n" + (proc.stderr or "")
     return proc.stdout
@@ -59,6 +63,37 @@ def resolve_openclaw_bin() -> str:
         if candidate and Path(candidate).exists():
             return candidate
     return "openclaw"
+
+
+def _service_path() -> str:
+    """The PATH the gateway service runs with, from its generated environment file."""
+    try:
+        for line in SERVICE_ENV_FILE.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^\s*(?:export\s+)?PATH=(.*)$", line)
+            if match:
+                return match.group(1).strip().strip("'\"")
+    except OSError:
+        pass
+    return ""
+
+
+def openclaw_env(openclaw_bin: str) -> Dict[str, str]:
+    """Environment for running the openclaw CLI.
+
+    The CLI is a Node script. A scheduled job starts with a bare PATH that has no
+    node on it, so add the places the gateway's own Node is found.
+    """
+    candidates = [str(Path(openclaw_bin).parent)] if os.path.isabs(openclaw_bin) else []
+    candidates += [d for d in _service_path().split(":") if d]
+    candidates += ["/opt/homebrew/bin", "/usr/local/bin"]
+    current = [d for d in os.environ.get("PATH", "").split(":") if d]
+    seen: List[str] = []
+    for directory in candidates + current:
+        if directory not in seen:
+            seen.append(directory)
+    env = dict(os.environ)
+    env["PATH"] = ":".join(seen)
+    return env
 
 
 def utc_now() -> str:
@@ -174,22 +209,50 @@ def backup_configured() -> bool:
     return False
 
 
-def hook_on_gateway_path() -> Optional[bool]:
-    """Whether the gateway service is started with the sudo shim first on PATH.
-
-    None when that cannot be determined (no macOS LaunchAgent for the gateway).
-    """
-    try:
-        with GATEWAY_PLIST.open("rb") as f:
-            env = plistlib.load(f).get("EnvironmentVariables") or {}
-    except Exception:
-        return None
-    entries = [e for e in str(env.get("PATH") or "").split(":") if e]
+def _shim_first(path_value: str) -> bool:
+    entries = [e for e in str(path_value or "").split(":") if e]
     shim_dir = str(OPENCLAW_DIR / "bin")
     if shim_dir not in entries:
         return False
     system_dirs = [i for i, e in enumerate(entries) if e in ("/usr/bin", "/bin", "/usr/local/bin")]
     return not system_dirs or entries.index(shim_dir) < min(system_dirs)
+
+
+def hook_on_gateway_path(config: Optional[Dict[str, object]] = None) -> Optional[bool]:
+    """Whether OpenClaw finds the sudo shim before the real sudo.
+
+    Checked in the order OpenClaw applies them:
+    1. ``tools.exec.pathPrepend`` in openclaw.json, which OpenClaw puts first on the
+       PATH of every command it runs.
+    2. The generated service environment file, which replaces the LaunchAgent's PATH
+       on current releases.
+    3. The gateway LaunchAgent's own PATH (older releases).
+
+    None when none of these exists, so it cannot be determined.
+    """
+    shim_dir = OPENCLAW_DIR / "bin"
+    tools = config.get("tools") if isinstance(config, dict) else None
+    exec_cfg = tools.get("exec") if isinstance(tools, dict) else None
+    prepend = exec_cfg.get("pathPrepend") if isinstance(exec_cfg, dict) else None
+    if isinstance(prepend, list) and any(
+        isinstance(e, str) and Path(e).expanduser() == shim_dir for e in prepend
+    ):
+        return True
+
+    try:
+        for line in SERVICE_ENV_FILE.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^\s*(?:export\s+)?PATH=(.*)$", line)
+            if match:
+                return _shim_first(match.group(1).strip().strip("'\""))
+    except OSError:
+        pass
+
+    try:
+        with GATEWAY_PLIST.open("rb") as f:
+            env = plistlib.load(f).get("EnvironmentVariables") or {}
+    except Exception:
+        return None
+    return _shim_first(str(env.get("PATH") or ""))
 
 
 def passwordless_sudo_available() -> Optional[bool]:
@@ -287,9 +350,10 @@ def release_age_months(version_text: str, today: Optional[datetime] = None) -> O
 def collect_runtime_signals(port_monitor_script: Path) -> Dict[str, object]:
     openclaw_bin = resolve_openclaw_bin()
     openclaw_config_text = run_cmd(["cat", str(Path.home() / ".openclaw" / "openclaw.json")])
-    doctor_text = run_cmd([openclaw_bin, "doctor"])
-    gateway_status_text = run_cmd([openclaw_bin, "gateway", "status"])
-    version_text = run_cmd([openclaw_bin, "--version"])
+    cli_env = openclaw_env(openclaw_bin)
+    doctor_text = run_cmd([openclaw_bin, "doctor"], cli_env)
+    gateway_status_text = run_cmd([openclaw_bin, "gateway", "status"], cli_env)
+    version_text = run_cmd([openclaw_bin, "--version"], cli_env)
 
     port_report_raw = run_cmd(["python3", str(port_monitor_script), "--json"])
     egress_report_raw = run_cmd(
@@ -316,7 +380,7 @@ def collect_runtime_signals(port_monitor_script: Path) -> Dict[str, object]:
         "egress_report": egress_report,
         "env_flags": load_env_flags(),
         "hook_installed": runtime_hook_installed(),
-        "hook_on_gateway_path": hook_on_gateway_path(),
+        "hook_on_gateway_path": hook_on_gateway_path(load_openclaw_config()),
         "passwordless_sudo": passwordless_sudo_available(),
         "runs_as_root": openclaw_runs_as_root(),
         "timeout_selftest": timeout_selftest(),
@@ -570,28 +634,28 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
         due_in(7),
     )
 
-    on_path = sig("hook_on_gateway_path", hook_on_gateway_path)
+    on_path = sig("hook_on_gateway_path", lambda: hook_on_gateway_path(cfg_json if isinstance(cfg_json, dict) else None))
     if not hook_ok:
         hook_status, hook_observed = "violation", "Runtime privileged execution hook missing."
     elif on_path is False:
         hook_status, hook_observed = "partial", (
-            "Hook is installed, but the gateway service does not put ~/.openclaw/bin first on its PATH, so it is not used."
+            "Hook is installed, but OpenClaw does not put ~/.openclaw/bin before the real sudo on its PATH, so it is not used."
         )
     elif on_path is None:
         hook_status, hook_observed = "partial", (
             "Hook is installed; the gateway's PATH could not be checked on this platform."
         )
     else:
-        hook_status, hook_observed = "compliant", "Hook is installed and first on the gateway service's PATH."
+        hook_status, hook_observed = "compliant", "Hook is installed and OpenClaw finds it before the real sudo."
     set_check(
         checks_by_id,
         "runtime_privilege_hook_installed",
         hook_status,
         "high",
         hook_observed,
-        "Checked ~/.openclaw/bin/sudo and the gateway LaunchAgent's PATH.",
+        "Checked ~/.openclaw/bin/sudo, tools.exec.pathPrepend, and the gateway service's PATH.",
         "The gateway can reach the real sudo without passing through the approval guard.",
-        "Run install-openclaw-runtime-hook.sh, then reload the gateway service so it picks up the new PATH.",
+        "Run install-openclaw-runtime-hook.sh, then restart the OpenClaw gateway.",
         "Security Engineering",
         due_in(7),
     )

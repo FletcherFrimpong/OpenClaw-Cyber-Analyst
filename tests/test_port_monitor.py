@@ -112,6 +112,14 @@ class ApprovalTests(unittest.TestCase):
         self.assertFalse(pm.is_approved(entry(22, protocol="udp"), rules))  # protocol defaults to tcp
         self.assertFalse(pm.is_approved(entry(9999), rules))
 
+    def test_any_port_rule_needs_a_process_name(self):
+        rules = [{"port": "*", "command": "rapportd", "allow_public": True}, {"port": "*"}]
+        moving = entry(58987, command="rapportd", host="*")
+        self.assertTrue(pm.is_approved(moving, rules))
+        self.assertTrue(pm.is_approved(entry(61234, command="rapportd", host="*"), rules))
+        self.assertEqual(pm.build_findings([moving], rules), [])
+        self.assertFalse(pm.is_approved(entry(61234, command="other"), rules))  # a bare "*" approves nothing
+
     def test_unapproved_and_insecure(self):
         findings = pm.build_findings([entry(8080), entry(80, command="httpd")], [{"port": 80}])
         self.assertEqual(kinds(findings), [("insecure-port", 80), ("unapproved-port", 8080)])

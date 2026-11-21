@@ -58,6 +58,26 @@ if [[ -e "${BIN_DIR}/sudo" ]]; then
   log "Removed sudo shim."
 fi
 
+# Take the shim directory back out of OpenClaw's command PATH.
+if command -v openclaw >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  REMAINING="$(python3 - "${HOME}/.openclaw/openclaw.json" "${BIN_DIR}" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        current = json.load(f).get("tools", {}).get("exec", {}).get("pathPrepend")
+except Exception:
+    current = None
+if isinstance(current, list) and sys.argv[2] in current:
+    print(json.dumps([e for e in current if e != sys.argv[2]]))
+PY
+)" || REMAINING=""
+  if [[ -n "${REMAINING}" ]]; then
+    if openclaw config set tools.exec.pathPrepend "${REMAINING}" --strict-json >/dev/null 2>&1; then
+      log "Removed ${BIN_DIR} from OpenClaw's command PATH. Restart the gateway to apply: openclaw gateway restart"
+    fi
+  fi
+fi
+
 PLIST="${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist"
 if [[ "$(uname -s)" == "Darwin" && -f "${PLIST}" && -x /usr/libexec/PlistBuddy ]]; then
   CURRENT="$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:PATH" "${PLIST}" 2>/dev/null || true)"

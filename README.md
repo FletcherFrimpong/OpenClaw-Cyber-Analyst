@@ -94,7 +94,8 @@ This creates:
 - `~/.openclaw/security/approved_ports.json`
 
 Review it and remove anything you do not recognise. A service that listens on every
-network interface is reported until you set `"allow_public": true` on its rule.
+network interface is reported until you set `"allow_public": true` on its rule. For a service that picks a
+new port each time it starts, use `"port": "*"` with a `command`.
 
 Starter template:
 
@@ -187,12 +188,11 @@ Or install it standalone:
 ./cyber-security-engineer/scripts/install-openclaw-runtime-hook.sh
 ```
 
-Then reload the gateway service so it picks up the new PATH. On macOS a plain
-`openclaw gateway restart` is not enough:
+The installer sets OpenClaw's `tools.exec.pathPrepend` so the shim is found before the
+real sudo, then asks you to restart the gateway:
 
 ```bash
-launchctl bootout gui/$(id -u)/ai.openclaw.gateway
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.gateway.plist
+openclaw gateway restart
 ```
 
 The shim can be removed at any time by deleting `~/.openclaw/bin/sudo`.

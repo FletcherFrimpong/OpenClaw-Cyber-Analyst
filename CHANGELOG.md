@@ -4,6 +4,20 @@ All notable changes to this project are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); the version is the `version` field in
 `cyber-security-engineer/SKILL.md`.
 
+## Unreleased
+
+### Added
+
+- Port baseline rules accept `"port": "*"` with a `command`, for services that pick a new port each time they start.
+
+### Fixed
+
+- The sudo hook is now wired in through OpenClaw's `tools.exec.pathPrepend` setting. Current OpenClaw
+  releases start the gateway from a generated environment file that replaces the LaunchAgent's PATH, so
+  the previous approach had no effect there. The assessment checks the same places OpenClaw uses.
+- The scheduled security cycle can run the `openclaw` command. It starts with a bare PATH that has no
+  Node on it, so the version and health checks failed when run by the scheduler.
+
 ## 0.2.0 - 2026-11-21
 
 ### Security

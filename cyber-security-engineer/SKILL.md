@@ -31,7 +31,7 @@ description: Security engineering workflow for OpenClaw privilege governance and
 - `OPENCLAW_ALLOW_NONINTERACTIVE_SUDO` — set to `1` to allow non-interactive sudo through the shim (default: blocked)
 - `OPENCLAW_PRIV_REASON` — human-readable reason passed to the guarded execution wrapper
 - `OPENCLAW_VIOLATION_NOTIFY_STATE` — override path to the notification state file
-- `OPENCLAW_SKIP_PLIST_CONFIRM` — set to `1` to skip the interactive confirmation before modifying the macOS LaunchAgent plist
+- `OPENCLAW_SKIP_PLIST_CONFIRM` — set to `1` to skip the interactive confirmation before the hook installer changes OpenClaw's command PATH
 
 **Policy files (admin reviewed):**
 - `~/.openclaw/security/approved_ports.json`
@@ -55,7 +55,8 @@ Implement these controls in every security-sensitive task:
 
 The script `scripts/install-openclaw-runtime-hook.sh` installs an **opt-in** sudo
 shim at `~/.openclaw/bin/sudo`. This shim **shadows** the system `sudo` binary by
-prepending `~/.openclaw/bin` to `PATH` in the OpenClaw gateway process.
+putting `~/.openclaw/bin` first on the `PATH` of commands OpenClaw runs, through OpenClaw's
+`tools.exec.pathPrepend` setting (or the gateway LaunchAgent's `PATH` on older releases).
 
 **What it does:**
 - Intercepts `sudo` invocations and routes them through `guarded_privileged_exec.py`
@@ -73,7 +74,7 @@ prepending `~/.openclaw/bin` to `PATH` in the OpenClaw gateway process.
 
 **Opt-in:** The hook is **not installed by default**. To enable it, run bootstrap with
 `ENFORCE_PRIVILEGED_EXEC=1`. On macOS, the installer will prompt for confirmation
-before modifying the gateway LaunchAgent plist. The shim can be removed at any time
+before changing OpenClaw's command PATH. The shim can be removed at any time
 by deleting `~/.openclaw/bin/sudo`.
 
 ## File Writes
