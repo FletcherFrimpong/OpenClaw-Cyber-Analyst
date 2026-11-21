@@ -4,11 +4,41 @@ All notable changes to this project are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); the version is the `version` field in
 `cyber-security-engineer/SKILL.md`.
 
-## Unreleased
+## 0.2.1 - 2026-11-21
+
+Addresses the findings of ClawHub's security scan of 0.2.0, plus two problems found
+while upgrading a real install to OpenClaw 2026.11.6.
+
+### Security
+
+- **The sudo shim no longer passes commands around the guard.** `sudo -k <command>`,
+  `sudo -V <command>` and similar were forwarded straight to the real sudo. A flag is
+  now passed through only when it is the single argument and runs nothing.
+- **The shim's paths are fixed at install time.** It no longer reads the sudo binary,
+  the Python interpreter or the guard's location from the environment
+  (`OPENCLAW_REAL_SUDO`, `OPENCLAW_PYTHON3`, `OPENCLAW_CYBER_SKILL_DIR` and
+  `OPENCLAW_ALLOW_NONINTERACTIVE_SUDO` are gone).
+- **Fresh sudo authentication cannot be skipped.** Commands run as `sudo -k -- <command>`,
+  and the `--no-sudo-kill-cache` flag is removed. The sudo binary comes from a fixed
+  list of system paths.
+- **The command that runs is the file that was checked.** The guard resolves symbolic
+  links before validation, policy, approval and execution, and applies policy to both
+  the requested and the resolved path.
+- **Malformed exact policy rules block everything** instead of being skipped.
+- **A caller can shorten the idle timeout but not lengthen it.**
+- **The hook installer changes nothing persistent without a clear yes.** Without a
+  terminal it used to proceed; it now needs `OPENCLAW_HOOK_ASSUME_YES=1`.
+
+### Changed
+
+- The sudo shim is a readable template (`scripts/sudo-shim.template.sh`), and the
+  dashboard's styles and script are plain files in `assets/`.
+- `SKILL.md` declares its requirements and supported platforms in `metadata.openclaw`.
 
 ### Added
 
 - Port baseline rules accept `"port": "*"` with a `command`, for services that pick a new port each time they start.
+- Tests for the sudo shim and its installer.
 
 ### Fixed
 

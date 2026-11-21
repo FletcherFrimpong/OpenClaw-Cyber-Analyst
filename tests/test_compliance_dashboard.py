@@ -152,6 +152,12 @@ class RenderTests(unittest.TestCase):
         self.assertIn("No mitigation actions recorded.", page)
         self.assertIn('class="donut-empty"', page)
 
+    def test_assets_are_inlined_so_the_page_is_one_file(self):
+        page = render(SAMPLE)
+        self.assertIn(cd._asset("dashboard.css").strip().splitlines()[-1], page)
+        self.assertIn("function showPage()", page)
+        self.assertNotIn("dashboard.css", page.replace("/* Styles for the compliance dashboard.", ""))
+
     def test_tables_are_paginated_past_the_page_size(self):
         page = render(SAMPLE)
         self.assertEqual(cd.PAGE_SIZE, 10)

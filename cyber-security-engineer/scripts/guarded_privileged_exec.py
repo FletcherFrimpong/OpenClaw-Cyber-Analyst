@@ -5,9 +5,14 @@ How a command is approved
 - Approval is asked for and answered on the controlling terminal (/dev/tty), never
   on stdin. A caller that pipes "y" into this script cannot approve its own command,
   and with no terminal attached the command is refused.
-- With --use-sudo, sudo's cached credentials are discarded first, so sudo asks for
-  the user's password on every run. That prompt is enforced by the operating system
-  and is the control that holds even against a process running as the same user.
+- With --use-sudo, the command runs as "sudo -k -- command": sudo ignores any cached
+  credentials for that run, so it asks for the user's password every time. That
+  prompt is enforced by the operating system and is the control that holds even
+  against a process running as the same user. It cannot be switched off by a flag
+  or an environment variable.
+- The sudo binary is one of a fixed list of system paths, never taken from the
+  environment, and the command that runs is the fully resolved path that was
+  validated and shown for approval.
 - An optional approval token (OPENCLAW_APPROVAL_TOKEN) is typed without echo.
 
 Settings are read from ~/.openclaw/env and the process environment (see
@@ -59,6 +64,11 @@ SAFE_ENV_VARS = {
 EXIT_AUDIT_FAILED = 10
 EXIT_NO_TERMINAL = 11
 
+# The only places sudo is looked for. Not configurable: a caller-supplied path could
+# name a program that skips authentication.
+SUDO_CANDIDATES = ("/usr/bin/sudo", "/bin/sudo", "/usr/local/bin/sudo")
+MAX_TIMEOUT_MINUTES = 30
+
 
 class TerminalPrompter:
     """Talks to the person at the controlling terminal, bypassing stdin and stdout."""
@@ -108,13 +118,15 @@ class TerminalPrompter:
 
 
 def run_guard(args, *guard_args):
+    # A caller may shorten the idle timeout but never lengthen it.
+    timeout = min(max(1, args.timeout_minutes), MAX_TIMEOUT_MINUTES)
     cmd = [
         sys.executable,
         str(Path(__file__).with_name("root_session_guard.py")),
         "--state-file",
         args.state_file,
         "--timeout-minutes",
-        str(args.timeout_minutes),
+        str(timeout),
         *guard_args,
     ]
     return subprocess.run(cmd, capture_output=True, text=True)
@@ -232,20 +244,27 @@ def _validate_command_argv(argv: List[str]) -> Optional[str]:
     return None
 
 
-def run_command(argv: List[str], use_sudo: bool, sudo_kill_cache: bool) -> int:
-    sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "/usr/bin/sudo")
+def find_sudo() -> Optional[str]:
+    """The system's sudo: root-owned, not writable by others, from a fixed list of paths."""
+    for candidate in SUDO_CANDIDATES:
+        if _validate_binary(candidate, allow_setuid=True) is None:
+            return candidate
+    return None
+
+
+def run_command(argv: List[str], use_sudo: bool) -> int:
+    exec_argv = argv
     if use_sudo:
-        err = _validate_binary(sudo_bin, allow_setuid=True)
-        if err:
-            append_audit({"action": "sudo_binary_invalid", "binary": sudo_bin, "error": err})
-            print(f"Invalid sudo binary: {err}", file=sys.stderr)
+        sudo_bin = find_sudo()
+        if sudo_bin is None:
+            append_audit({"action": "sudo_binary_invalid", "candidates": list(SUDO_CANDIDATES)})
+            print("No valid sudo binary found in the system directories.", file=sys.stderr)
             return 9
-    exec_argv = [sudo_bin, "--"] + argv if use_sudo else argv
+        # "-k" with a command makes sudo ignore cached credentials for this run and not
+        # refresh them, so the password prompt cannot be skipped.
+        exec_argv = [sudo_bin, "-k", "--"] + argv
     print("Executing argv:")
     print(json.dumps(exec_argv, indent=2))
-    if use_sudo and sudo_kill_cache:
-        # Discard cached credentials so sudo itself asks for the password on this run.
-        subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
     append_audit({"action": "exec_start", "argv": argv, "use_sudo": use_sudo})
     result = subprocess.run(exec_argv, env=SAFE_ENV_VARS)
     append_audit({"action": "exec_finish", "argv": argv, "use_sudo": use_sudo, "returncode": result.returncode})
@@ -277,19 +296,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Prefix command with sudo",
     )
-    parser.add_argument(
-        "--sudo-kill-cache",
-        dest="sudo_kill_cache",
-        action="store_true",
-        default=True,
-        help="Discard sudo's cached credentials before and after the command (default)",
-    )
-    parser.add_argument(
-        "--no-sudo-kill-cache",
-        dest="sudo_kill_cache",
-        action="store_false",
-        help="Keep sudo's cached credentials; sudo may then run without asking for a password",
-    )
+    # Accepted for compatibility with older callers. Cached sudo credentials are always
+    # ignored now, so the flag changes nothing.
+    parser.add_argument("--sudo-kill-cache", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--keep-session",
         action="store_true",
@@ -350,7 +359,14 @@ def main(argv: Optional[List[str]] = None, prompter=None) -> int:
         print(f"Invalid command: {err}", file=sys.stderr)
         return 8
 
-    policy_result = evaluate_command(command)
+    # From here on the command is the fully resolved file that was just validated. A
+    # symbolic link cannot be repointed between the check, the approval and the run.
+    # Policy is applied to both spellings so a rule written against either one holds.
+    requested = command
+    command = [os.path.realpath(command[0])] + command[1:]
+    policy_result = evaluate_command(requested)
+    if policy_result.get("allowed", False) and command != requested:
+        policy_result = evaluate_command(command)
     if not policy_result.get("allowed", False):
         append_audit(
             {
@@ -423,14 +439,11 @@ def main(argv: Optional[List[str]] = None, prompter=None) -> int:
     try:
         if args.use_sudo:
             run_guard(args, "elevated-used")
-        return run_command(command, args.use_sudo, args.sudo_kill_cache)
+        return run_command(command, args.use_sudo)
     finally:
         if not args.keep_session:
             run_guard(args, "drop")
             append_audit({"action": "drop_elevation", "argv": command, "reason": "post-command"})
-        if args.use_sudo and args.sudo_kill_cache:
-            sudo_bin = os.environ.get("OPENCLAW_REAL_SUDO", "/usr/bin/sudo")
-            subprocess.run([sudo_bin, "-k"], check=False, capture_output=True, text=True)
 
 
 if __name__ == "__main__":

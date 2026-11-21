@@ -1,6 +1,16 @@
 ---
 name: cyber-security-engineer
-version: 0.2.0
+version: 0.2.1
+homepage: https://github.com/FletcherFrimpong/OpenClaw-Cyber-Analyst
+metadata:
+  {
+    "openclaw":
+      {
+        "homepage": "https://github.com/FletcherFrimpong/OpenClaw-Cyber-Analyst",
+        "os": ["darwin", "linux"],
+        "requires": { "bins": ["python3"], "anyBins": ["lsof", "ss", "netstat"] },
+      },
+  }
 description: Security engineering workflow for OpenClaw privilege governance and hardening. Use for least-privilege execution, approval-first privileged actions, idle timeout controls, port + egress monitoring, and ISO 27001/NIST-aligned compliance reporting with mitigations.
 ---
 
@@ -25,13 +35,9 @@ description: Security engineering workflow for OpenClaw privilege governance and
 - `OPENCLAW_UNTRUSTED_SOURCE` — set to `1` to flag the current content source as untrusted
 - `OPENCLAW_VIOLATION_NOTIFY_CMD` — absolute path to a notifier binary (must also be allowlisted)
 - `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST` — JSON array of allowed argv arrays, or comma-separated absolute paths
-- `OPENCLAW_REAL_SUDO` — override path to the real sudo binary (used by the runtime hook shim)
-- `OPENCLAW_PYTHON3` — override path to python3 (used by the runtime hook shim)
-- `OPENCLAW_CYBER_SKILL_DIR` — override path to the skill directory (used by the runtime hook shim)
-- `OPENCLAW_ALLOW_NONINTERACTIVE_SUDO` — set to `1` to allow non-interactive sudo through the shim (default: blocked)
 - `OPENCLAW_PRIV_REASON` — human-readable reason passed to the guarded execution wrapper
 - `OPENCLAW_VIOLATION_NOTIFY_STATE` — override path to the notification state file
-- `OPENCLAW_SKIP_PLIST_CONFIRM` — set to `1` to skip the interactive confirmation before the hook installer changes OpenClaw's command PATH
+- `OPENCLAW_HOOK_ASSUME_YES` — set to `1` to let the hook installer change OpenClaw's command PATH without asking (for unattended installs; without it and without a terminal, nothing is changed)
 
 **Policy files (admin reviewed):**
 - `~/.openclaw/security/approved_ports.json`
@@ -61,20 +67,21 @@ putting `~/.openclaw/bin` first on the `PATH` of commands OpenClaw runs, through
 **What it does:**
 - Intercepts `sudo` invocations and routes them through `guarded_privileged_exec.py`
 - Requires approval typed at the controlling terminal before running any privileged command
-- Resolves bare command names (`sudo ls`) in the system directories only; sudo options such as `-u` are not supported
+- Runs the command as `sudo -k -- <command>`, so sudo asks for the password every time
 - Enforces command policy allow/deny rules, audit logging, and a 30-minute idle timeout
-- Blocks non-interactive sudo by default (prevents automated abuse)
-- Passes through harmless flags (`-h`, `--version`, `-k`, `-l`) directly to real sudo
+- Resolves bare command names (`sudo ls`) in the system directories only; sudo options such as `-u` are not supported
+- Passes a flag straight to the real sudo only when it is the single argument and runs nothing:
+  `-h`, `--help`, `-V`, `--version`, `-k`, `-K`. The same flag followed by a command goes through the guard.
 
 **What it does NOT do:**
 - It does not stop a caller that runs `/usr/bin/sudo` by its full path; that call still meets sudo's password prompt
 - It does not replace or modify the system sudo binary
 - It does not grant itself any elevated permissions
-- It only affects processes whose `PATH` includes `~/.openclaw/bin` before `/usr/bin`
+- It does not read its sudo, python or guard paths from the environment; they are fixed when the shim is installed
 
 **Opt-in:** The hook is **not installed by default**. To enable it, run bootstrap with
-`ENFORCE_PRIVILEGED_EXEC=1`. On macOS, the installer will prompt for confirmation
-before changing OpenClaw's command PATH. The shim can be removed at any time
+`ENFORCE_PRIVILEGED_EXEC=1`. The installer asks for confirmation before changing OpenClaw's
+command PATH, and changes nothing if it cannot ask. The shim can be removed at any time
 by deleting `~/.openclaw/bin/sudo`.
 
 ## File Writes
@@ -134,11 +141,12 @@ No files are written to `/usr/`, `/etc/`, or any system directory.
 - `scripts/prompt_policy.py`
 - `scripts/guarded_privileged_exec.py`
 - `scripts/install-openclaw-runtime-hook.sh`
+- `scripts/sudo-shim.template.sh`
 - `scripts/port_monitor.py`
 - `scripts/generate_approved_ports.py`
 - `scripts/egress_monitor.py`
 - `scripts/notify_on_violation.py`
-- `scripts/compliance_dashboard.py`
+- `scripts/compliance_dashboard.py` (with `assets/dashboard.css` and `assets/dashboard.js`)
 - `scripts/live_assessment.py`
 
 ## Behavior

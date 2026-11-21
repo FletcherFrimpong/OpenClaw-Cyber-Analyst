@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs a sudo shim at ~/.openclaw/bin/sudo (matches live_assessment checks).
-# For the shim to be used, OpenClaw's runtime PATH must include ~/.openclaw/bin
-# before /usr/bin. This script attempts best-effort PATH injection for macOS
-# LaunchAgent installs of the gateway.
+# Installs the sudo shim (sudo-shim.template.sh) at ~/.openclaw/bin/sudo, then, with
+# your confirmation, puts ~/.openclaw/bin first on the PATH OpenClaw uses for commands.
 
 log() {
   printf '[cyber-security-engineer] %s\n' "$*"
@@ -76,13 +74,17 @@ validate_root_bin() {
   return 0
 }
 
-REAL_SUDO="$(command -v sudo || true)"
+# The real sudo is looked for in the system directories only. "command -v sudo"
+# could return this shim when it is already installed and first on PATH.
+REAL_SUDO=""
+for candidate in /usr/bin/sudo /bin/sudo /usr/local/bin/sudo; do
+  if validate_root_bin "${candidate}"; then
+    REAL_SUDO="${candidate}"
+    break
+  fi
+done
 if [[ -z "${REAL_SUDO}" ]]; then
-  log "sudo not found; nothing to install."
-  exit 1
-fi
-if ! validate_root_bin "${REAL_SUDO}"; then
-  log "Refusing to install shim: sudo binary failed validation."
+  log "Refusing to install shim: no root-owned sudo found in /usr/bin, /bin or /usr/local/bin."
   exit 1
 fi
 
@@ -90,46 +92,35 @@ PYTHON3="$(resolve_python)"
 
 OPENCLAW_DIR="${HOME}/.openclaw"
 BIN_DIR="${OPENCLAW_DIR}/bin"
-SKILL_DIR_DEFAULT="${OPENCLAW_DIR}/workspace/skills/cyber-security-engineer"
+SKILL_DIR="${OPENCLAW_DIR}/workspace/skills/cyber-security-engineer"
+TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sudo-shim.template.sh"
+
+if [[ ! -f "${TEMPLATE}" ]]; then
+  log "Shim template not found: ${TEMPLATE}"
+  exit 1
+fi
+if [[ ! -f "${SKILL_DIR}/scripts/guarded_privileged_exec.py" ]]; then
+  log "The skill is not installed at ${SKILL_DIR}. Install it first, then run this again."
+  exit 1
+fi
 
 mkdir -p "${BIN_DIR}"
 chmod 700 "${OPENCLAW_DIR}" "${BIN_DIR}" || true
 
 WRAPPER="${BIN_DIR}/sudo"
-cat > "${WRAPPER}" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
+# Fill the three paths into the template, each quoted for the shell.
+"${PYTHON3}" - "${TEMPLATE}" "${WRAPPER}" "${REAL_SUDO}" "${PYTHON3}" "${SKILL_DIR}" <<'PY'
+import shlex
+import sys
 
-REAL_SUDO_OVERRIDE="\${OPENCLAW_REAL_SUDO:-${REAL_SUDO}}"
-PYTHON3_OVERRIDE="\${OPENCLAW_PYTHON3:-${PYTHON3}}"
-SKILL_DIR="\${OPENCLAW_CYBER_SKILL_DIR:-${SKILL_DIR_DEFAULT}}"
-
-# Pass-through for sudo bookkeeping.
-if [[ \$# -eq 0 ]]; then
-  exec "\${REAL_SUDO_OVERRIDE}"
-fi
-case "\${1:-}" in
-  -h|--help|-V|--version|-v|-l|-k)
-    exec "\${REAL_SUDO_OVERRIDE}" "\$@"
-    ;;
-esac
-
-# Refuse non-interactive privilege escalation by default (safety).
-if [[ ! -t 0 && "\${OPENCLAW_ALLOW_NONINTERACTIVE_SUDO:-0}" != "1" ]]; then
-  echo "[cyber-security-engineer] Refusing non-interactive sudo (set OPENCLAW_ALLOW_NONINTERACTIVE_SUDO=1 to override)." >&2
-  exit 2
-fi
-
-REASON="\${OPENCLAW_PRIV_REASON:-OpenClaw requested privileged execution}"
-# Sanitize reason: strip shell metacharacters to prevent injection
-REASON="\$(printf '%s' "\${REASON}" | tr -d '\`\$\\!;|&<>(){}' | head -c 200)"
-export OPENCLAW_REAL_SUDO="\${REAL_SUDO_OVERRIDE}"
-export OPENCLAW_PYTHON3="\${PYTHON3_OVERRIDE}"
-exec "\${PYTHON3_OVERRIDE}" "\${SKILL_DIR}/scripts/guarded_privileged_exec.py" \
-  --reason "\${REASON}" \
-  --use-sudo \
-  -- "\$@"
-EOF
+template, destination, real_sudo, python3, skill_dir = sys.argv[1:6]
+with open(template, encoding="utf-8") as f:
+    text = f.read()
+for placeholder, value in (("@REAL_SUDO@", real_sudo), ("@PYTHON3@", python3), ("@SKILL_DIR@", skill_dir)):
+    text = text.replace(placeholder, shlex.quote(value))
+with open(destination, "w", encoding="utf-8") as f:
+    f.write(text)
+PY
 chmod 700 "${WRAPPER}"
 
 log "Installed sudo shim: ${WRAPPER}"
@@ -144,13 +135,19 @@ log "Installed sudo shim: ${WRAPPER}"
 # Fallback (older OpenClaw without that setting, macOS): the LaunchAgent's PATH.
 
 confirm_change() {
-  # $1 = what will be modified
-  if [[ -t 0 && "${OPENCLAW_SKIP_PLIST_CONFIRM:-0}" != "1" ]]; then
-    local reply
-    printf '[cyber-security-engineer] This will modify %s\nProceed? [y/N]: ' "$1"
-    read -r reply
-    [[ "${reply}" == "y" || "${reply}" == "Y" ]]
+  # $1 = what will be modified. Changing how OpenClaw finds sudo is persistent, so it
+  # needs a clear yes: typed at a terminal, or OPENCLAW_HOOK_ASSUME_YES=1 for
+  # unattended installs. With neither, nothing is changed.
+  if [[ "${OPENCLAW_HOOK_ASSUME_YES:-0}" == "1" ]]; then
+    return 0
   fi
+  if [[ ! -t 0 ]]; then
+    return 1
+  fi
+  local reply
+  printf '[cyber-security-engineer] This will modify %s\nProceed? [y/N]: ' "$1"
+  read -r reply
+  [[ "${reply}" == "y" || "${reply}" == "Y" ]]
 }
 
 set_path_prepend() {
@@ -192,8 +189,9 @@ set_launchagent_path() {
 }
 
 if ! confirm_change "OpenClaw's command PATH (tools.exec.pathPrepend in ${OPENCLAW_DIR}/openclaw.json)"; then
-  log "Skipped. The shim is installed but OpenClaw will not use it until ${BIN_DIR} is first on its command PATH:"
-  log "  openclaw config set tools.exec.pathPrepend '[\"${BIN_DIR}\"]' --strict-json"
+  log "OpenClaw's command PATH was not changed (no confirmation given)."
+  log "The shim is installed but OpenClaw will not use it until ${BIN_DIR} is first on that PATH."
+  log "Run this installer in a terminal and answer y, or set OPENCLAW_HOOK_ASSUME_YES=1."
   exit 0
 fi
 

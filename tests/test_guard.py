@@ -293,7 +293,9 @@ class CommandPolicyTests(HomeCase):
         self.assertEqual(self.evaluate("/bin/ls", "-la")["reason"], "deny_exact_match")
 
     def test_broken_policy_blocks_everything(self):
-        for broken in ({"deny": ["("]}, {"allow": ["["]}, {"deny": "rm"}, {"deny": [5]}, "{not json", "[]"):
+        for broken in ({"deny": ["("]}, {"allow": ["["]}, {"deny": "rm"}, {"deny": [5]}, "{not json", "[]",
+                       {"deny_exact": [["/bin/rm", 5]]}, {"deny_exact": ["/bin/rm -rf /"]}, {"allow_exact": [[]]},
+                       {"deny_exact": "x"}):
             self.policy(broken)
             result = self.evaluate("/bin/ls")
             self.assertEqual((result["allowed"], result["reason"]), (False, "invalid_policy"), broken)
@@ -443,9 +445,48 @@ class GuardedExecTests(HomeCase):
             self.assertEqual(guarded.main(["--reason", "x"], prompter=FakeTerminal()), 2)
             self.assertEqual(guarded.main(["--reason", "x", "--"], prompter=FakeTerminal()), 2)
 
-    def test_sudo_credentials_are_discarded_by_default(self):
-        self.assertTrue(guarded.parse_args(["--reason", "x", "--", TRUE]).sudo_kill_cache)
-        self.assertFalse(guarded.parse_args(["--reason", "x", "--no-sudo-kill-cache", "--", TRUE]).sudo_kill_cache)
+    def test_sudo_always_ignores_cached_credentials(self):
+        completed = mock.Mock(returncode=0)
+        with mock.patch.object(guarded, "find_sudo", return_value="/usr/bin/sudo"), \
+                mock.patch.object(guarded.subprocess, "run", return_value=completed) as run, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(guarded.run_command([TRUE, "x"], use_sudo=True), 0)
+        self.assertEqual(run.call_args[0][0], ["/usr/bin/sudo", "-k", "--", TRUE, "x"])
+        # There is no flag to turn that off.
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            guarded.parse_args(["--reason", "x", "--no-sudo-kill-cache", "--", TRUE])
+        guarded.parse_args(["--reason", "x", "--sudo-kill-cache", "--", TRUE])  # old callers still parse
+
+    def test_sudo_is_never_taken_from_the_environment(self):
+        with mock.patch.dict(os.environ, {"OPENCLAW_REAL_SUDO": TRUE}):
+            self.assertIn(guarded.find_sudo(), (None,) + guarded.SUDO_CANDIDATES)
+        with mock.patch.object(guarded, "SUDO_CANDIDATES", ("/no/such/sudo",)), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertIsNone(guarded.find_sudo())
+            self.assertEqual(guarded.run_command([TRUE], use_sudo=True), 9)
+
+    def test_caller_cannot_lengthen_the_idle_timeout(self):
+        captured = mock.Mock(returncode=0, stdout="", stderr="")
+        for requested, expected in (("99999", "30"), ("5", "5"), ("0", "1")):
+            args = guarded.parse_args(["--reason", "x", "--timeout-minutes", requested, "--", TRUE])
+            with mock.patch.object(guarded.subprocess, "run", return_value=captured) as run:
+                guarded.run_guard(args, "status")
+            argv = run.call_args[0][0]
+            self.assertEqual(argv[argv.index("--timeout-minutes") + 1], expected)
+
+    def test_the_resolved_file_is_what_gets_approved_checked_and_run(self):
+        link = self.home / "innocent-name"
+        link.symlink_to(TRUE)
+        # Validation follows the link to a root-owned binary, and that real path is what is used.
+        real = os.path.realpath(TRUE)
+        command_policy.POLICY_PATH.write_text(json.dumps({"deny": ["^" + real + "$"]}))
+        terminal = FakeTerminal(["y"])
+        self.assertEqual(self.run_guard(str(link), terminal=terminal), 3)  # policy on the real path applies
+        command_policy.POLICY_PATH.unlink()
+        self.assertEqual(self.run_guard(str(link), terminal=FakeTerminal(["y"])), 0)
+        started = [json.loads(line) for line in self.audit.read_text().splitlines()
+                   if json.loads(line)["action"] == "exec_start"]
+        self.assertEqual(started[-1]["argv"], [real])
 
 
 if __name__ == "__main__":

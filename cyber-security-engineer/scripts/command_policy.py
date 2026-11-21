@@ -50,13 +50,18 @@ def _match_any(patterns: List[re.Pattern], text: str) -> Optional[str]:
     return None
 
 
-def _load_exact_rules(items: object) -> List[List[str]]:
-    if not isinstance(items, list):
+def _load_exact_rules(items: object, field: str) -> List[List[str]]:
+    if items is None:
         return []
+    if not isinstance(items, list):
+        raise PolicyError(f"'{field}' must be a list of argv lists")
     out: List[List[str]] = []
     for entry in items:
-        if isinstance(entry, list) and all(isinstance(s, str) and s for s in entry):
-            out.append(entry)
+        # A malformed rule is an error, not something to skip: a dropped deny rule
+        # would quietly allow the command it was written to block.
+        if not (isinstance(entry, list) and entry and all(isinstance(s, str) and s for s in entry)):
+            raise PolicyError(f"'{field}' contains an entry that is not a list of non-empty strings")
+        out.append(entry)
     return out
 
 
@@ -89,11 +94,11 @@ def evaluate_command(argv: List[str]) -> Dict[str, object]:
         pol = _load_policy()
         allow = _compile_patterns(pol.get("allow"), "allow")
         deny = _compile_patterns(pol.get("deny"), "deny")
+        allow_exact = _load_exact_rules(pol.get("allow_exact"), "allow_exact")
+        deny_exact = _load_exact_rules(pol.get("deny_exact"), "deny_exact")
     except PolicyError as exc:
         sys.stderr.write(f"command_policy: {exc}\n")
         return {"allowed": False, "reason": "invalid_policy", "pattern": None, "error": str(exc)}
-    allow_exact = _load_exact_rules(pol.get("allow_exact"))
-    deny_exact = _load_exact_rules(pol.get("deny_exact"))
 
     if deny_exact and _match_exact(deny_exact, argv):
         return {"allowed": False, "reason": "deny_exact_match", "pattern": "exact"}
