@@ -45,7 +45,7 @@ Implement these controls in every security-sensitive task:
 4. Drop elevated state immediately after the privileged command completes.
 5. Expire elevated state after 30 idle minutes and require re-approval.
 6. Monitor listening network ports and flag insecure or unapproved exposure.
-7. Monitor outbound connections and flag destinations not in the egress allowlist.
+7. Monitor OpenClaw's outbound connections and flag destinations not in the egress allowlist.
 8. If no approved baseline exists, generate one with `python3 scripts/generate_approved_ports.py`, then review and prune.
 9. Benchmark controls against ISO 27001 and NIST and report violations with mitigations.
 
@@ -82,6 +82,7 @@ skill folder. No files are written outside these two trees.
 - `~/.openclaw/security/root-session-state.json` — elevated session state (by `root_session_guard.py`)
 - `~/.openclaw/security/privileged-audit.jsonl` — append-only audit log (by `audit_logger.py`)
 - `~/.openclaw/security/violation-notify-state.json` — notification diff state (by `notify_on_violation.py`)
+- `~/.openclaw/security/egress-dns-cache.json` — DNS answers for allowlisted hostnames, kept 7 days (by `egress_monitor.py`)
 - `~/.openclaw/bin/sudo` — opt-in sudo shim (by `install-openclaw-runtime-hook.sh`, see Runtime Hook section)
 - `~/.openclaw/logs/cyber-security-engineer-auto.log` — auto-cycle run log (by `auto_invoke_cycle.sh`)
 
@@ -97,6 +98,13 @@ skill folder. No files are written outside these two trees.
 
 No files are written to `/usr/`, `/etc/`, or any system directory.
 
+## Network Use
+
+- `scripts/egress_monitor.py` resolves the hostnames listed in `~/.openclaw/security/egress_allowlist.json`
+  through the system DNS resolver, so they can be compared with the IP addresses the OS reports.
+  Run it with `--no-resolve` to make no DNS queries.
+- No other script in this skill makes network calls.
+
 ## Non-Goals (Web Browsing)
 
 - Do not use web browsing / web search as part of this skill. Keep assessments and recommendations based on local host/OpenClaw state and the bundled references in this skill.
@@ -105,6 +113,7 @@ No files are written to `/usr/`, `/etc/`, or any system directory.
 
 - `references/least-privilege-policy.md`
 - `references/port-monitoring-policy.md`
+- `references/egress-monitoring-policy.md`
 - `references/compliance-controls-map.json`
 - `references/approved_ports.template.json`
 - `references/command-policy.template.json`
@@ -134,7 +143,9 @@ No files are written to `/usr/`, `/etc/`, or any system directory.
 - If timeout is exceeded, force session expiration and approval renewal.
 - Log privileged actions to `~/.openclaw/security/privileged-audit.jsonl` (best-effort).
 - Flag listening ports not present in the approved baseline and recommend secure alternatives for insecure ports.
-- Flag outbound destinations not present in the egress allowlist.
+- Flag outbound destinations not present in the egress allowlist. Evaluate only OpenClaw's own processes,
+  outbound direction, and destinations that leave the host (see `references/egress-monitoring-policy.md`).
+- Treat an egress report with `summary.evaluated` of 0 as "nothing checked", not as proof of compliance.
 
 ## Output Contract
 
@@ -143,3 +154,4 @@ When reporting status, include:
 - The specific `check_id`(s) affected, `status`, `risk`, and concise evidence.
 - Concrete mitigations (what to change, where) and any owners/due dates if present.
 - For network findings: port, bind address, process/service, and why it is flagged (unapproved/insecure/public).
+- For egress findings: process, pid, remote address and port, any allowlisted hostname it resolves to, and the rule that would be needed.

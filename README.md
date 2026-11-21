@@ -87,19 +87,56 @@ Starter template:
 
 ### 3) Outbound Network Monitoring
 
-Check current outbound TCP connections against your allowlist:
+Check OpenClaw's outbound TCP connections against your allowlist:
 
 ```bash
-python3 cyber-security-engineer/scripts/egress_monitor.py --json
+python3 cyber-security-engineer/scripts/egress_monitor.py
 ```
+
+Only real egress from OpenClaw is evaluated:
+
+- OpenClaw's own processes (the gateway and anything it starts), not the rest of the machine
+- Outbound connections only, not clients connecting in to the gateway
+- Destinations that leave the host, not loopback or link-local traffic
+
+Useful options:
+
+| Option | Effect |
+| --- | --- |
+| `--json` | Machine-readable report |
+| `--scope all` | Evaluate every process on the host, not just OpenClaw |
+| `--include-local` | Also evaluate loopback and link-local destinations |
+| `--no-resolve` | Make no DNS queries; use remembered answers only |
+| `--fail-on-findings` | Exit with status 3 if anything unapproved is found |
 
 Allowlist path:
 
 - `~/.openclaw/security/egress_allowlist.json`
 
-Starter template:
+Each rule names a destination and, ideally, why it is allowed:
+
+```json
+[
+  {
+    "protocol": "tcp",
+    "host": "api.openai.com",
+    "port": 443,
+    "comment": "Model provider"
+  }
+]
+```
+
+Rules accept `host`/`hosts` (hostname or IP), `cidr`, `host_regex`, `port`/`ports` and `command`.
+Hostnames are resolved through DNS so they can be compared with the IP addresses the
+operating system reports; answers are remembered for 7 days in
+`~/.openclaw/security/egress-dns-cache.json`.
+
+If the report shows `evaluated: 0`, OpenClaw was idle or not running and nothing was checked.
+
+Starter template and full reference:
 
 - `cyber-security-engineer/references/egress-allowlist.template.json`
+- `cyber-security-engineer/references/egress-monitoring-policy.md`
 
 ## Optional Features
 
@@ -130,6 +167,14 @@ You can send alerts when new violations/partials appear:
 - `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST`
   - Allowed notifier commands
   - Supports exact JSON argv rules (recommended) or legacy comma-separated binaries
+
+## Development
+
+Run the tests from the project folder (no network access or OpenClaw install needed):
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ## Common Terms
 

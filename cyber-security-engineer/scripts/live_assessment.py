@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Collect runtime signals and update the compliance assessment JSON.
 
-Review before use. No external network calls are made by this script.
+Review before use. This script makes no network calls itself. It runs
+egress_monitor.py, which resolves allowlisted hostnames through DNS.
 """
 import argparse
 import json
@@ -513,15 +514,30 @@ def build_assessment(assessment: Dict[str, object], signals: Dict[str, object]) 
 
     egress_report = signals.get("egress_report") or {}
     egress_findings = egress_report.get("findings", []) if isinstance(egress_report, dict) else []
-    egress_clean = egress_ok and len(egress_findings) == 0
+    egress_scan_ok = isinstance(egress_report, dict) and egress_report.get("status") == "ok"
+    egress_summary = egress_report.get("summary") if isinstance(egress_report, dict) else None
+    egress_evaluated = egress_summary.get("evaluated", 0) if isinstance(egress_summary, dict) else 0
+    # A failed scan proves nothing, so it can never count as clean.
+    egress_clean = egress_ok and egress_scan_ok and len(egress_findings) == 0
+    if not egress_scan_ok:
+        egress_observed = "Egress scan failed; outbound connections could not be checked."
+        egress_gap = "Egress monitor did not complete."
+    else:
+        egress_observed = (
+            f"Unapproved egress findings: {len(egress_findings)} "
+            f"({egress_evaluated} outbound OpenClaw connection(s) evaluated)"
+        )
+        egress_gap = (
+            "Unapproved outbound connections detected." if egress_ok else "Allowlist missing; cannot validate egress."
+        )
     set_check(
         checks_by_id,
         "egress_connections_approved",
         "compliant" if egress_clean else "partial",
         "medium",
-        f"Unapproved egress findings: {len(egress_findings)}",
-        "egress_monitor.py live output evaluated against allowlist.",
-        "Unapproved outbound connections detected." if egress_ok else "Allowlist missing; cannot validate egress.",
+        egress_observed,
+        "egress_monitor.py evaluated OpenClaw's outbound connections against the allowlist.",
+        egress_gap,
         "Approve or block outbound destinations.",
         "Network Security",
         due_in(21),
