@@ -4,9 +4,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILL_SRC="${REPO_ROOT}/cyber-security-engineer"
 SKILL_NAME="cyber-security-engineer"
-CODEX_SKILLS_DIR="${HOME}/.codex/skills"
 OPENCLAW_SKILLS_DIR="${HOME}/.openclaw/workspace/skills"
-AUTO_INVOKE="${AUTO_INVOKE:-1}"
+# AUTO_INVOKE: 1 = install the 30-minute scheduler, 0 = skip, unset = ask.
+AUTO_INVOKE="${AUTO_INVOKE:-ask}"
+# What to install when OpenClaw is missing. Pin a release with e.g. OPENCLAW_NPM_SPEC=openclaw@2026.11.6
+OPENCLAW_NPM_SPEC="${OPENCLAW_NPM_SPEC:-openclaw@latest}"
 ENFORCE_PRIVILEGED_EXEC="${ENFORCE_PRIVILEGED_EXEC:-0}"
 
 log() {
@@ -35,13 +37,14 @@ install_openclaw() {
     return
   fi
 
-  log "Installing OpenClaw via npm..."
-  if ! env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund install -g openclaw@latest; then
+  log "Installing ${OPENCLAW_NPM_SPEC} via npm..."
+  if ! env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund install -g "${OPENCLAW_NPM_SPEC}"; then
     log "Initial install failed. Cleaning npm artifacts and retrying..."
     npm uninstall -g openclaw >/dev/null 2>&1 || true
     cleanup_openclaw_npm_artifacts
-    env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund install -g openclaw@latest
+    env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm --loglevel warn --no-fund install -g "${OPENCLAW_NPM_SPEC}"
   fi
+  log "Installed: $(openclaw --version 2>/dev/null || echo unknown)"
 }
 
 configure_openclaw() {
@@ -62,20 +65,7 @@ configure_openclaw() {
 }
 
 install_skill() {
-  if [[ ! -d "${SKILL_SRC}" ]]; then
-    log "Skill folder not found: ${SKILL_SRC}"
-    exit 1
-  fi
-
-  log "Installing skill to Codex user skills path..."
-  mkdir -p "${CODEX_SKILLS_DIR}"
-  rm -rf "${CODEX_SKILLS_DIR}/${SKILL_NAME}"
-  cp -R "${SKILL_SRC}" "${CODEX_SKILLS_DIR}/${SKILL_NAME}"
-
-  log "Installing skill to OpenClaw workspace skills path..."
-  mkdir -p "${OPENCLAW_SKILLS_DIR}"
-  rm -rf "${OPENCLAW_SKILLS_DIR}/${SKILL_NAME}"
-  cp -R "${SKILL_SRC}" "${OPENCLAW_SKILLS_DIR}/${SKILL_NAME}"
+  bash "${REPO_ROOT}/scripts/install-skill.sh"
 }
 
 verify_install() {
@@ -88,8 +78,20 @@ verify_install() {
 }
 
 enable_auto_invoke() {
+  if [[ "${AUTO_INVOKE}" == "ask" ]]; then
+    # A background job that runs every 30 minutes is only installed with consent.
+    if [[ -t 0 ]]; then
+      local reply
+      printf '[openclaw-cyber-analyst] Install a background job that runs the security cycle every 30 minutes? [y/N]: '
+      read -r reply
+      if [[ "${reply}" == "y" || "${reply}" == "Y" ]]; then AUTO_INVOKE=1; else AUTO_INVOKE=0; fi
+    else
+      AUTO_INVOKE=0
+    fi
+  fi
   if [[ "${AUTO_INVOKE}" != "1" ]]; then
-    log "AUTO_INVOKE disabled; skipping auto-run service setup."
+    log "Scheduler not installed. To add it later: ./scripts/enable-auto-invoke.sh"
+    log "To run a security cycle now: ./scripts/auto-invoke-security-cycle.sh"
     return
   fi
 

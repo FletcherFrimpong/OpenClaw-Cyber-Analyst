@@ -172,5 +172,12 @@ else
   log "Non-macOS: ensure the OpenClaw gateway process PATH includes ${BIN_DIR} before /usr/bin."
 fi
 
-log "Restart the OpenClaw gateway to apply:"
-log "  openclaw gateway restart"
+if [[ "$(uname -s)" == "Darwin" && -f "${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist" ]]; then
+  # A plain restart keeps the old environment; the service has to be reloaded to see the new PATH.
+  log "Reload the OpenClaw gateway service to apply:"
+  log "  launchctl bootout gui/\$(id -u)/ai.openclaw.gateway"
+  log "  launchctl bootstrap gui/\$(id -u) ${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist"
+else
+  log "Restart the OpenClaw gateway to apply:"
+  log "  openclaw gateway restart"
+fi

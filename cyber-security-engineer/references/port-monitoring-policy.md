@@ -15,7 +15,10 @@ Use `~/.openclaw/security/approved_ports.json` as a JSON array:
 ]
 ```
 
-`command` is optional but recommended for tighter control.
+`command` is optional but recommended for tighter control. Add `"allow_public": true` to a rule only when
+the service is meant to listen on every interface; without it, such a service is reported as `public-bind`.
+
+UDP sockets are listed only with `--include-udp`.
 
 ## Monitoring Command
 

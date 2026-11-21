@@ -1,6 +1,6 @@
 ---
 name: cyber-security-engineer
-version: 0.1.9
+version: 0.2.0
 description: Security engineering workflow for OpenClaw privilege governance and hardening. Use for least-privilege execution, approval-first privileged actions, idle timeout controls, port + egress monitoring, and ISO 27001/NIST-aligned compliance reporting with mitigations.
 ---
 
@@ -9,17 +9,19 @@ description: Security engineering workflow for OpenClaw privilege governance and
 ## Requirements
 
 **Required tools:**
-- `python3` (>= 3.8)
+- `python3` (>= 3.9)
 - `openclaw` CLI (installed via `npm` during bootstrap, or pre-installed)
 - `npm` (only needed for bootstrap if `openclaw` is not already installed)
 - One of `lsof`, `ss`, or `netstat` for port/egress checks
 - `stat`, `readlink` (standard on macOS/Linux, used by the runtime hook installer)
 
-**Env vars (all optional, documented for configuration):**
-- `OPENCLAW_REQUIRE_POLICY_FILES` — set to `1` to block privileged execution when policy files are missing
-- `OPENCLAW_REQUIRE_SESSION_ID` — set to `1` to require a task session id for each privileged action
+**Settings (all optional).** Set them in the process environment or, for the ones marked *file*, as
+`NAME=value` lines in `~/.openclaw/env` (mode 600). A protection is on when either place sets it.
+- `OPENCLAW_REQUIRE_POLICY_FILES` — *file* — set to `1` to block privileged execution when policy files are missing
+- `OPENCLAW_REQUIRE_SESSION_ID` — *file* — set to `1` to require a task session id for each privileged action
 - `OPENCLAW_TASK_SESSION_ID` — per-task session id (used when `OPENCLAW_REQUIRE_SESSION_ID=1`)
-- `OPENCLAW_APPROVAL_TOKEN` — if set, requires this token during the approval step
+- `OPENCLAW_APPROVAL_TOKEN` — *file* — if set, this token must be typed at the terminal during approval
+- `OPENCLAW_AUDIT_OPTIONAL` — *file* — set to `1` to let a privileged command run when the audit log cannot be written (default: refuse)
 - `OPENCLAW_UNTRUSTED_SOURCE` — set to `1` to flag the current content source as untrusted
 - `OPENCLAW_VIOLATION_NOTIFY_CMD` — absolute path to a notifier binary (must also be allowlisted)
 - `OPENCLAW_VIOLATION_NOTIFY_ALLOWLIST` — JSON array of allowed argv arrays, or comma-separated absolute paths
@@ -40,7 +42,7 @@ description: Security engineering workflow for OpenClaw privilege governance and
 Implement these controls in every security-sensitive task:
 
 1. Keep default execution in normal (non-root) mode.
-2. Request explicit user approval before any elevated command.
+2. Request explicit user approval before any elevated command. Approval is given by a person at the terminal; never pipe an answer into the guard.
 3. Scope elevation to the minimum command set required for the active task.
 4. Drop elevated state immediately after the privileged command completes.
 5. Expire elevated state after 30 idle minutes and require re-approval.
@@ -57,12 +59,14 @@ prepending `~/.openclaw/bin` to `PATH` in the OpenClaw gateway process.
 
 **What it does:**
 - Intercepts `sudo` invocations and routes them through `guarded_privileged_exec.py`
-- Requires explicit interactive user approval before running any privileged command
+- Requires approval typed at the controlling terminal before running any privileged command
+- Resolves bare command names (`sudo ls`) in the system directories only; sudo options such as `-u` are not supported
 - Enforces command policy allow/deny rules, audit logging, and a 30-minute idle timeout
 - Blocks non-interactive sudo by default (prevents automated abuse)
 - Passes through harmless flags (`-h`, `--version`, `-k`, `-l`) directly to real sudo
 
 **What it does NOT do:**
+- It does not stop a caller that runs `/usr/bin/sudo` by its full path; that call still meets sudo's password prompt
 - It does not replace or modify the system sudo binary
 - It does not grant itself any elevated permissions
 - It only affects processes whose `PATH` includes `~/.openclaw/bin` before `/usr/bin`
@@ -79,8 +83,9 @@ skill folder. No files are written outside these two trees.
 
 **Under `~/.openclaw/` (user config/state):**
 - `~/.openclaw/security/approved_ports.json` — generated port baseline (by `generate_approved_ports.py`)
-- `~/.openclaw/security/root-session-state.json` — elevated session state (by `root_session_guard.py`)
-- `~/.openclaw/security/privileged-audit.jsonl` — append-only audit log (by `audit_logger.py`)
+- `~/.openclaw/security/root-session-state.json` — signed elevated session state (by `root_session_guard.py`)
+- `~/.openclaw/security/session-state.key` — per-user key that signs the session state (by `root_session_guard.py`)
+- `~/.openclaw/security/privileged-audit.jsonl` — hash-chained audit log, rotated to `privileged-audit.jsonl.1` at 5 MB (by `audit_logger.py`)
 - `~/.openclaw/security/violation-notify-state.json` — notification diff state (by `notify_on_violation.py`)
 - `~/.openclaw/security/egress-dns-cache.json` — DNS answers for allowlisted hostnames, kept 7 days (by `egress_monitor.py`)
 - `~/.openclaw/bin/sudo` — opt-in sudo shim (by `install-openclaw-runtime-hook.sh`, see Runtime Hook section)
@@ -111,6 +116,7 @@ No files are written to `/usr/`, `/etc/`, or any system directory.
 
 ## Files To Use
 
+- `references/threat-model.md`
 - `references/least-privilege-policy.md`
 - `references/port-monitoring-policy.md`
 - `references/egress-monitoring-policy.md`
@@ -120,6 +126,7 @@ No files are written to `/usr/`, `/etc/`, or any system directory.
 - `references/prompt-policy.template.json`
 - `references/egress-allowlist.template.json`
 - `scripts/preflight_check.py`
+- `scripts/security_config.py`
 - `scripts/root_session_guard.py`
 - `scripts/audit_logger.py`
 - `scripts/command_policy.py`
@@ -137,12 +144,16 @@ No files are written to `/usr/`, `/etc/`, or any system directory.
 
 - Never keep root/elevated access open between unrelated tasks.
 - Never execute root commands without an explicit approval step in the current flow.
+- Never answer the approval or password prompt on the user's behalf, and never call `/usr/bin/sudo` directly to avoid the guard.
+- Refuse privileged execution when no terminal is attached, when the audit log cannot be written, or when the command policy file is broken.
 - Enforce command allow/deny policy when configured.
 - Require confirmation when untrusted content sources are detected (`OPENCLAW_UNTRUSTED_SOURCE=1` + prompt policy).
 - Enforce task session id scoping when configured (`OPENCLAW_REQUIRE_SESSION_ID=1`).
 - If timeout is exceeded, force session expiration and approval renewal.
-- Log privileged actions to `~/.openclaw/security/privileged-audit.jsonl` (best-effort).
+- Log privileged actions to `~/.openclaw/security/privileged-audit.jsonl`; verify the log with `python3 scripts/audit_logger.py verify`.
 - Flag listening ports not present in the approved baseline and recommend secure alternatives for insecure ports.
+- Flag services listening on all interfaces unless their baseline rule sets `"allow_public": true`.
+- State the limits in `references/threat-model.md` when asked what this skill protects against.
 - Flag outbound destinations not present in the egress allowlist. Evaluate only OpenClaw's own processes,
   outbound direction, and destinations that leave the host (see `references/egress-monitoring-policy.md`).
 - Treat an egress report with `summary.evaluated` of 0 as "nothing checked", not as proof of compliance.
