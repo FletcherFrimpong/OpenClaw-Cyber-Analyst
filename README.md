@@ -80,28 +80,31 @@ The screenshots show example data, not a real machine.
 
 ## How It Works
 
+**When the agent wants root:**
+
 ```mermaid
 flowchart LR
-    subgraph ask["When the agent wants root"]
-        A[sudo command] --> B[sudo shim]
-        B --> C{Command policy}
-        C -- denied --> X[Blocked and logged]
-        C -- allowed --> D{You approve<br/>at the terminal}
-        D -- no --> X
-        D -- yes --> E[sudo asks for<br/>your password]
-        E --> F[Command runs,<br/>elevation dropped]
-        F --> L[(Hash-chained<br/>audit log)]
-        X --> L
-    end
+    A[sudo command] --> B[sudo shim]
+    B --> C{Command policy}
+    C -- denied --> X[Blocked]
+    C -- allowed --> D{You approve<br/>at the terminal}
+    D -- no --> X
+    D -- yes --> E[sudo asks for<br/>your password]
+    E --> F[Command runs,<br/>elevation dropped]
+    F --> L[(Audit log)]
+    X --> L
+```
 
-    subgraph watch["Every 30 minutes"]
-        P[Port monitor] --> R[Assessment]
-        Q[Egress monitor] --> R
-        S[Guard self-tests] --> R
-        L --> R
-        R --> T[Dashboard and<br/>JSON summary]
-        R --> N[Alert on new findings]
-    end
+**Every 30 minutes:**
+
+```mermaid
+flowchart LR
+    P[Port monitor] --> R[Assessment]
+    Q[Egress monitor] --> R
+    S[Guard self-tests] --> R
+    L[(Audit log)] --> R
+    R --> T[Dashboard and<br/>JSON summary]
+    R --> N[Alert on<br/>new findings]
 ```
 
 There are two halves:
